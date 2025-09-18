@@ -63,7 +63,8 @@ export default function WelcomeScreen() {
 
   if (loading) return <ActivityIndicator style={{ flex: 1 }} />;
 
-  const dropdownHeight = anim.interpolate({ inputRange: [0, 1], outputRange: [0, Math.min(250, drivers.length * 56)] });
+  const scaleY = anim.interpolate({ inputRange: [0, 1], outputRange: [0.8, 1] });
+  const dropdownOpacity = anim.interpolate({ inputRange: [0, 1], outputRange: [0, 1] });
   return (
     <SafeAreaView style={styles.container} >
       <ThemedText type="title">Welcome</ThemedText>
@@ -80,8 +81,8 @@ export default function WelcomeScreen() {
         {(() => {
           const AnimatedScroll = Animated.createAnimatedComponent(ScrollView);
           return (
-            <AnimatedScroll
-              style={[styles.dropdown, { height: dropdownHeight, opacity: anim }]}
+        <AnimatedScroll
+          style={[styles.dropdown, { transform: [{ scaleY }], opacity: dropdownOpacity }]}
               contentContainerStyle={{ paddingVertical: 6 }}
               showsVerticalScrollIndicator
             >
