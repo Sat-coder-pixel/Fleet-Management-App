@@ -5,10 +5,7 @@ import 'react-native-reanimated';
 
 import { useColorScheme } from '@/hooks/use-color-scheme';
 
-export const unstable_settings = {
-  anchor: '(tabs)',
-};
-
+// Remove the anchor so the root `app/index.tsx` becomes the landing page.
 export default function RootLayout() {
   const colorScheme = useColorScheme();
 
