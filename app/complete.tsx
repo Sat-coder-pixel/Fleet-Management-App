@@ -1,10 +1,11 @@
 
 import { ThemedText } from '@/components/themed-text';
-import * as FileSystem from 'expo-file-system';
+// Use the legacy expo-file-system API to avoid deprecation warnings for getInfoAsync
+import * as FileSystem from 'expo-file-system/legacy';
 import * as ImagePicker from 'expo-image-picker';
 import * as Print from 'expo-print';
 import React, { useState } from 'react';
-import { Alert, Button, Image, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Alert, Button, Image, Modal, Platform, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 export default function CompleteTaskPlaceholder({ route }: any) {
@@ -12,6 +13,15 @@ export default function CompleteTaskPlaceholder({ route }: any) {
   const [podPhoto, setPodPhoto] = useState<ImagePicker.ImagePickerResult | null>(null);
   const [invoicePhoto, setInvoicePhoto] = useState<ImagePicker.ImagePickerResult | null>(null);
   const [processing, setProcessing] = useState(false);
+  const [checklistVisible, setChecklistVisible] = useState(false);
+  const [checklist, setChecklist] = useState(
+    [
+      { id: 'c1', label: 'Items secured', checked: false, comment: '' },
+      { id: 'c2', label: 'Documents attached', checked: false, comment: '' },
+      { id: 'c3', label: 'Seal intact', checked: false, comment: '' },
+      { id: 'c4', label: 'Delivery notes signed', checked: false, comment: '' },
+    ] as Array<{ id: string; label: string; checked: boolean; comment: string }>
+  );
 
   async function requestCameraPermissions() {
     const { status } = await ImagePicker.requestCameraPermissionsAsync();
@@ -36,6 +46,18 @@ export default function CompleteTaskPlaceholder({ route }: any) {
       console.warn(e);
       Alert.alert('Camera error', String(e));
     }
+  }
+
+  function isChecklistComplete() {
+    return checklist.every((c) => c.checked === true);
+  }
+
+  function toggleChecklistItem(id: string) {
+    setChecklist((prev) => prev.map((c) => (c.id === id ? { ...c, checked: !c.checked } : c)));
+  }
+
+  function setChecklistComment(id: string, comment: string) {
+    setChecklist((prev) => prev.map((c) => (c.id === id ? { ...c, comment } : c)));
   }
 
   function getImageData(res: ImagePicker.ImagePickerResult | null) {
@@ -179,25 +201,73 @@ export default function CompleteTaskPlaceholder({ route }: any) {
       <ThemedText type="title">Complete Task</ThemedText>
       <ThemedText style={{ marginTop: 8, marginBottom: 12 }}>Take POD and Invoice photos, then merge into a PDF.</ThemedText>
 
-      <View style={styles.row}>
-        <View style={styles.thumbWrap}>
+      <View style={{ marginTop: 8 }}>
+        <View style={{ marginBottom: 16 }}>
           {renderThumb(podPhoto, 'POD Photo')}
-          <Pressable style={styles.photoBtn} onPress={() => takePhoto(setPodPhoto, 'POD Photo')}>
-            <Text style={styles.photoBtnText}>Take POD Photo</Text>
+          <Pressable
+            style={[styles.photoBtn, { backgroundColor: getImageData(podPhoto) ? '#28a745' : '#1b7ed6' }]}
+            onPress={() => takePhoto(setPodPhoto, 'POD Photo')}
+          >
+            <Text style={styles.photoBtnText}>{getImageData(podPhoto) ? 'POD Taken' : 'Take POD Photo'}</Text>
           </Pressable>
         </View>
 
-        <View style={styles.thumbWrap}>
+        <View style={{ marginBottom: 16 }}>
           {renderThumb(invoicePhoto, 'Invoice Photo')}
-          <Pressable style={styles.photoBtn} onPress={() => takePhoto(setInvoicePhoto, 'Invoice Photo')}>
-            <Text style={styles.photoBtnText}>Take Invoice Photo</Text>
+          <Pressable
+            style={[styles.photoBtn, { backgroundColor: getImageData(invoicePhoto) ? '#28a745' : '#6f42c1' }]}
+            onPress={() => takePhoto(setInvoicePhoto, 'Invoice Photo')}
+          >
+            <Text style={styles.photoBtnText}>{getImageData(invoicePhoto) ? 'Invoice Taken' : 'Take Invoice Photo'}</Text>
           </Pressable>
         </View>
       </View>
 
-      <View style={{ marginTop: 18 }}>
-        <Button title={processing ? 'Processing...' : 'Merge to PDF'} onPress={mergeToPdf} disabled={processing} />
+      <View style={{ marginTop: 18, flexDirection: 'row', gap: 12, alignItems: 'center' }}>
+        <Pressable style={[styles.photoBtn, { backgroundColor: '#666' }]} onPress={() => setChecklistVisible(true)}>
+          <Text style={styles.photoBtnText}>Open Checklist</Text>
+        </Pressable>
+
+        <Button
+          title={processing ? 'Processing...' : 'Complete Task'}
+          onPress={mergeToPdf}
+          disabled={processing || !getImageData(podPhoto) || !getImageData(invoicePhoto) || !isChecklistComplete()}
+        />
       </View>
+
+      {/* Checklist Modal */}
+      <Modal visible={checklistVisible} animationType="slide" onRequestClose={() => setChecklistVisible(false)}>
+        <SafeAreaView style={{ flex: 1, padding: 18 }}>
+          <Text style={{ fontSize: 18, fontWeight: '700', marginBottom: 12 }}>Checklist</Text>
+          {checklist.map((c) => (
+            <View key={c.id} style={{ marginBottom: 12, borderBottomWidth: 1, borderColor: '#eee', paddingBottom: 8 }}>
+              <Pressable onPress={() => toggleChecklistItem(c.id)} style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+                <Text style={{ fontWeight: '600' }}>{c.label}</Text>
+                <Text>{c.checked ? '☑' : '⬜'}</Text>
+              </Pressable>
+              <TextInput
+                placeholder="Add comment (optional)"
+                value={c.comment}
+                onChangeText={(t) => setChecklistComment(c.id, t)}
+                style={{ marginTop: 8, borderWidth: 1, borderColor: '#eee', padding: 8, borderRadius: 8 }}
+                multiline
+              />
+            </View>
+          ))}
+
+          <View style={{ marginTop: 12, flexDirection: 'row', justifyContent: 'flex-end' }}>
+            <Pressable
+              style={[styles.photoBtn, { marginRight: 8 }]}
+              onPress={() => {
+                // close modal
+                setChecklistVisible(false);
+              }}
+            >
+              <Text style={styles.photoBtnText}>Close</Text>
+            </Pressable>
+          </View>
+        </SafeAreaView>
+      </Modal>
     </SafeAreaView>
   );
 }

@@ -66,9 +66,11 @@ export default function WelcomeScreen() {
 
   const scaleY = anim.interpolate({ inputRange: [0, 1], outputRange: [0.8, 1] });
   const dropdownOpacity = anim.interpolate({ inputRange: [0, 1], outputRange: [0, 1] });
+  const dropdownHeight = anim.interpolate({ inputRange: [0, 1], outputRange: [0, 260] });
   return (
     <SafeAreaView style={styles.container} >
-      <ScrollView contentContainerStyle={{ paddingBottom: 40 }}>
+      {/* Disable outer scrolling while dropdown is open so the inner dropdown can capture touch/scroll on mobile */}
+      <ScrollView contentContainerStyle={{ paddingBottom: 40 }} scrollEnabled={!open} keyboardShouldPersistTaps="handled">
       <ThemedText type="title">Welcome</ThemedText>
       <ThemedText style={styles.subtitle}>Select your truck</ThemedText>
       {error ? <ThemedText style={styles.error}>{error}</ThemedText> : null}
@@ -80,44 +82,34 @@ export default function WelcomeScreen() {
 
         {/** Use an Animated ScrollView so the list scrolls when taller than the animated height */}
         {/** Create an animated component instance inline */}
-        {(() => {
-          const AnimatedScroll = Animated.createAnimatedComponent(ScrollView);
-          return (
-          <AnimatedScroll
-          style={[styles.dropdown, { transform: [{ scaleY }], opacity: dropdownOpacity }]}
-              contentContainerStyle={{ paddingVertical: 6 }}
-              showsVerticalScrollIndicator
-              nestedScrollEnabled
-              keyboardShouldPersistTaps="handled"
-              scrollEnabled={open}
-              pointerEvents={open ? 'auto' : 'none'}
-            >
-              {drivers.length === 0 ? (
-                <ThemedText style={{ padding: 12 }}>No trucks available</ThemedText>
-                ) : (
-                drivers.map((d) => (
-                  <Pressable
-                    key={String(d.truckNo ?? d.driverId)}
-                    style={[styles.item, selected?.truckNo === d.truckNo && styles.selectedItem]}
-                    onPress={() => {
-                      setSelected(d);
-                      // close the dropdown when a selection is made
-                      if (open) toggle();
-                    }}
-                  >
-                    <View style={{ flex: 1 }}>
-                      <Text style={styles.itemTitle}>Truck #{d.truckNo}</Text>
-                      <Text style={styles.itemMeta}>{d.driverName} · {d.truckType}</Text>
-                    </View>
-                    <View style={{ width: 40, alignItems: 'flex-end' }}>
-                      {selected?.truckNo === d.truckNo ? <Text style={styles.check}>✓</Text> : null}
-                    </View>
-                  </Pressable>
-                ))
-              )}
-            </AnimatedScroll>
-          );
-        })()}
+        {/* Animated container with a regular ScrollView inside for reliable touch/scroll on mobile */}
+        <Animated.View style={[styles.dropdown, { height: dropdownHeight, opacity: dropdownOpacity }]} pointerEvents={open ? 'auto' : 'none'}>
+          <ScrollView contentContainerStyle={{ paddingVertical: 6 }} showsVerticalScrollIndicator nestedScrollEnabled keyboardShouldPersistTaps="handled" scrollEnabled={open}>
+            {drivers.length === 0 ? (
+              <ThemedText style={{ padding: 12 }}>No trucks available</ThemedText>
+            ) : (
+              drivers.map((d) => (
+                <Pressable
+                  key={String(d.truckNo ?? d.driverId)}
+                  style={[styles.item, selected?.truckNo === d.truckNo && styles.selectedItem]}
+                  onPress={() => {
+                    setSelected(d);
+                    // close the dropdown when a selection is made
+                    if (open) toggle();
+                  }}
+                >
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.itemTitle}>Truck #{d.truckNo}</Text>
+                    <Text style={styles.itemMeta}>{d.driverName} · {d.truckType}</Text>
+                  </View>
+                  <View style={{ width: 40, alignItems: 'flex-end' }}>
+                    {selected?.truckNo === d.truckNo ? <Text style={styles.check}>✓</Text> : null}
+                  </View>
+                </Pressable>
+              ))
+            )}
+          </ScrollView>
+        </Animated.View>
 
         <View style={styles.actions}>
           <Pressable style={[styles.button, !selected && styles.buttonDisabled]} onPress={onConfirm} disabled={!selected}>
