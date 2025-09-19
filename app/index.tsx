@@ -1,13 +1,13 @@
 import { useRouter } from 'expo-router';
 import React, { useEffect, useRef, useState } from 'react';
 import {
-    ActivityIndicator,
-    Animated,
-    Pressable,
-    ScrollView,
-    StyleSheet,
-    Text,
-    View,
+  ActivityIndicator,
+  Animated,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  View,
 } from 'react-native';
 
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -51,7 +51,8 @@ export default function WelcomeScreen() {
 
   function toggle() {
     const to = open ? 0 : 1;
-    Animated.timing(anim, { toValue: to, duration: 220, useNativeDriver: true }).start();
+    // useNativeDriver:false because animating layout-like properties and web support
+    Animated.timing(anim, { toValue: to, duration: 220, useNativeDriver: false }).start();
     setOpen(!open);
   }
 
@@ -67,6 +68,7 @@ export default function WelcomeScreen() {
   const dropdownOpacity = anim.interpolate({ inputRange: [0, 1], outputRange: [0, 1] });
   return (
     <SafeAreaView style={styles.container} >
+      <ScrollView contentContainerStyle={{ paddingBottom: 40 }}>
       <ThemedText type="title">Welcome</ThemedText>
       <ThemedText style={styles.subtitle}>Select your truck</ThemedText>
       {error ? <ThemedText style={styles.error}>{error}</ThemedText> : null}
@@ -81,19 +83,27 @@ export default function WelcomeScreen() {
         {(() => {
           const AnimatedScroll = Animated.createAnimatedComponent(ScrollView);
           return (
-        <AnimatedScroll
+          <AnimatedScroll
           style={[styles.dropdown, { transform: [{ scaleY }], opacity: dropdownOpacity }]}
               contentContainerStyle={{ paddingVertical: 6 }}
               showsVerticalScrollIndicator
+              nestedScrollEnabled
+              keyboardShouldPersistTaps="handled"
+              scrollEnabled={open}
+              pointerEvents={open ? 'auto' : 'none'}
             >
               {drivers.length === 0 ? (
                 <ThemedText style={{ padding: 12 }}>No trucks available</ThemedText>
-              ) : (
+                ) : (
                 drivers.map((d) => (
                   <Pressable
                     key={String(d.truckNo ?? d.driverId)}
                     style={[styles.item, selected?.truckNo === d.truckNo && styles.selectedItem]}
-                    onPress={() => setSelected(d)}
+                    onPress={() => {
+                      setSelected(d);
+                      // close the dropdown when a selection is made
+                      if (open) toggle();
+                    }}
                   >
                     <View style={{ flex: 1 }}>
                       <Text style={styles.itemTitle}>Truck #{d.truckNo}</Text>
@@ -115,6 +125,7 @@ export default function WelcomeScreen() {
           </Pressable>
         </View>
       </View>
+      </ScrollView>
     </SafeAreaView>
   );
 }
@@ -142,13 +153,20 @@ const styles = StyleSheet.create({
     borderRadius: 10,
     borderWidth: 1,
     borderColor: '#e6eef8',
+    // position absolute so it doesn't push down the Continue button when collapsed
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    top: 68,
+    zIndex: 20,
+    maxHeight: 260,
   },
   item: { padding: 12, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
   itemTitle: { fontWeight: '600', color: '#123' },
   itemMeta: { color: '#667', marginTop: 4 },
   selectedItem: { backgroundColor: 'rgba(34,139,230,0.06)' },
   check: { color: '#1b7ed6', fontWeight: '700' },
-  actions: { marginTop: 12, alignItems: 'flex-end' },
+  actions: { marginTop: 12, alignItems: 'flex-end', zIndex: 5 },
   button: { backgroundColor: '#1b7ed6', paddingVertical: 10, paddingHorizontal: 18, borderRadius: 8 },
   buttonDisabled: { backgroundColor: '#aac8ea' },
   buttonText: { color: '#fff', fontWeight: '600' },

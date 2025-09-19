@@ -1,4 +1,4 @@
-export const API_BASE = 'http://localhost:3000/api';
+export const API_BASE = 'https://fleet-management-backend-1.onrender.com/api';
 
 type Driver = {
   driverId: number;
@@ -40,7 +40,7 @@ const DUMMY_DRIVERS: Driver[] = [
 
 export async function fetchAvailableDrivers(): Promise<Driver[]> {
   try {
-    const res = await fetch(`${API_BASE}/tasks/getavailable/drivers`);
+    const res = await fetch(`${API_BASE}/tasks/getAvailableDrivers`);
     const data = await handleResp(res);
     if (!data || (Array.isArray(data) && data.length === 0)) return DUMMY_DRIVERS;
     return data;
@@ -72,7 +72,7 @@ const DUMMY_TASKS = [
 
 export async function fetchTasksForTruck(truckId: number | string): Promise<Task[]> {
   try {
-    const url = `${API_BASE}/tasks/getTasksInProgress?Truckid=${encodeURIComponent(String(truckId))}`;
+    const url = `${API_BASE}/tasks/assigned?Truckid=${encodeURIComponent(String(truckId))}`;
     const res = await fetch(url);
     const data = await handleResp(res);
     if (!data || (Array.isArray(data) && data.length === 0)) return DUMMY_TASKS;
@@ -85,7 +85,7 @@ export async function fetchTasksForTruck(truckId: number | string): Promise<Task
 
 export async function startAssignedTask(assignedTaskId: number, truckNo: number) {
   try {
-    const res = await fetch(`${API_BASE}/tasks/start`, {
+    const res = await fetch(`${API_BASE}/driver/startAssignment`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ assignedTaskId, truckNo }),
