@@ -74,11 +74,12 @@ export async function fetchTasksForTruck(truckId: number | string): Promise<Task
   try {
     const url = `${API_BASE}/tasks/assigned?truckNo=${encodeURIComponent(String(truckId))}`;
     const res = await fetch(url);
-    const data = await handleResp(res);
-    // Some backends return { tasks: [...] } while others return the array directly.
-    const tasks = Array.isArray(data) ? data : (data && Array.isArray((data as any).tasks) ? (data as any).tasks : null);
-    if (!tasks || tasks.length === 0) return DUMMY_TASKS;
-    return tasks;
+  const data = await handleResp(res);
+  // Some backends return { tasks: [...] } while others return the array directly.
+  const tasks = Array.isArray(data) ? data : (data && Array.isArray((data as any).tasks) ? (data as any).tasks : null);
+  // If server returned an array (even empty), return it. Only fall back to dummy when no data at all.
+  if (tasks === null) return DUMMY_TASKS;
+  return tasks;
   } catch (e) {
     console.warn('fetchTasksForTruck failed, returning dummy', e);
     return DUMMY_TASKS;

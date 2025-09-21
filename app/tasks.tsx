@@ -1,13 +1,13 @@
 import { useRouter } from 'expo-router';
 import React, { useEffect, useRef, useState } from 'react';
 import {
-    ActivityIndicator,
-    Alert,
-    Animated,
-    Button,
-    FlatList,
-    StyleSheet,
-    View,
+  ActivityIndicator,
+  Alert,
+  Animated,
+  Button,
+  FlatList,
+  StyleSheet,
+  View,
 } from 'react-native';
 
 import { ThemedText } from '@/components/themed-text';
@@ -130,6 +130,12 @@ export default function TasksScreen() {
               title="Logout"
               color="#d9534f"
               onPress={async () => {
+                // Clear selected driver and cached tasks for this truck so next login fetches fresh data
+                try {
+                  if (driver?.truckNo) await storage.saveTasksForTruck(driver.truckNo, []);
+                } catch (e) {
+                  console.warn('Failed to clear cached tasks on logout', e);
+                }
                 await storage.saveSelectedDriver(null as any);
                 router.replace('/');
               }}

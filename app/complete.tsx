@@ -5,7 +5,7 @@ import { API_BASE } from '@/services/api';
 import * as ImagePicker from 'expo-image-picker';
 import { useRouter } from 'expo-router';
 import React, { useState } from 'react';
-import { Alert, Button, Image, Modal, Platform, Pressable, StyleSheet, Text, TextInput, View, ScrollView, KeyboardAvoidingView } from 'react-native';
+import { Alert, Button, Image, KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 export default function CompleteTaskPlaceholder({ route }: any) {
@@ -179,6 +179,16 @@ export default function CompleteTaskPlaceholder({ route }: any) {
       const json = await res.json();
       console.debug('completeAssignment response', json);
       Alert.alert('Success', 'Task completed successfully');
+      // clear cached tasks for this truck so the tasks screen refetches fresh data
+      try {
+        const truckNo = mergedParams.truckNo ?? mergedParams.truckno ?? mergedParams.truckId ?? mergedParams.truckid;
+        if (truckNo) {
+          const storage = (await import('@/storage/store')).default;
+          await storage.saveTasksForTruck(truckNo, []);
+        }
+      } catch (e) {
+        console.warn('Failed to clear cached tasks after completion', e);
+      }
       router.push('/tasks');
     } catch (err: any) {
       console.warn('submitCompletion failed', err);
