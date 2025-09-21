@@ -1,13 +1,13 @@
 import { useRouter } from 'expo-router';
 import React, { useEffect, useRef, useState } from 'react';
 import {
-  ActivityIndicator,
-  Alert,
-  Animated,
-  Button,
-  FlatList,
-  StyleSheet,
-  View,
+    ActivityIndicator,
+    Alert,
+    Animated,
+    Button,
+    FlatList,
+    StyleSheet,
+    View,
 } from 'react-native';
 
 import { ThemedText } from '@/components/themed-text';
@@ -120,8 +120,22 @@ export default function TasksScreen() {
   return (
     <SafeAreaView style={styles.container}>
       <View style={styles.header}>
-        <ThemedText type="title">Truck #{driver?.truckNo}</ThemedText>
-        <ThemedText style={styles.meta}>{driver?.driverName}</ThemedText>
+        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+          <View>
+            <ThemedText type="title">Truck #{driver?.truckNo}</ThemedText>
+            <ThemedText style={styles.meta}>{driver?.driverName}</ThemedText>
+          </View>
+          <View>
+            <Button
+              title="Logout"
+              color="#d9534f"
+              onPress={async () => {
+                await storage.saveSelectedDriver(null as any);
+                router.replace('/');
+              }}
+            />
+          </View>
+        </View>
       </View>
 
       <FlatList

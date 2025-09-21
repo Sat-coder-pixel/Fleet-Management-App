@@ -24,12 +24,17 @@ export default function CompleteTaskPlaceholder({ route }: any) {
   const [invoicePhoto, setInvoicePhoto] = useState<ImagePicker.ImagePickerResult | null>(null);
   const [processing, setProcessing] = useState(false);
   const [checklistVisible, setChecklistVisible] = useState(false);
+  const [missingReasonVisible, setMissingReasonVisible] = useState(false);
+  const [missingInvoiceReason, setMissingInvoiceReason] = useState<string | null>(null);
+  const [otherReasonText, setOtherReasonText] = useState('');
   const [checklist, setChecklist] = useState(
     [
       { id: 'c1', label: 'Items secured', checked: false, comment: '' },
       { id: 'c2', label: 'Documents attached', checked: false, comment: '' },
       { id: 'c3', label: 'Seal intact', checked: false, comment: '' },
       { id: 'c4', label: 'Delivery notes signed', checked: false, comment: '' },
+      // Invoice reason is presented as one more checklist field — it's required only when invoice photo is missing
+      { id: 'c5', label: 'Invoice missing reason', checked: false, comment: '' },
     ] as Array<{ id: string; label: string; checked: boolean; comment: string }>
   );
 
@@ -52,6 +57,13 @@ export default function CompleteTaskPlaceholder({ route }: any) {
       // Modern API: res.canceled (boolean) and res.assets[] (array)
       const canceled = 'canceled' in res ? (res as any).canceled : ('cancelled' in res ? (res as any).cancelled : false);
       if (!canceled) setter(res as ImagePicker.ImagePickerResult);
+      // If this was the invoice photo setter, mark the invoice-reason checklist field satisfied
+      if (setter === setInvoicePhoto) {
+        // clear any missing reason (invoice now present)
+        setMissingInvoiceReason(null);
+        setOtherReasonText('');
+        setChecklist((prev) => prev.map((c) => (c.id === 'c5' ? { ...c, checked: true } : c)));
+      }
     } catch (e: any) {
       console.warn(e);
       Alert.alert('Camera error', String(e));
@@ -59,7 +71,16 @@ export default function CompleteTaskPlaceholder({ route }: any) {
   }
 
   function isChecklistComplete() {
-    return checklist.every((c) => c.checked === true);
+    // invoiceAvailable:false -> require missingInvoiceReason (and otherReasonText if Other chosen)
+    const invoiceAvailable = !!getImageData(invoicePhoto);
+    const baseOk = checklist
+      .filter((c) => c.id !== 'c5')
+      .every((c) => c.checked === true);
+    // invoice reason field validation
+    const invoiceReasonOk = invoiceAvailable ? true : !!missingInvoiceReason && (missingInvoiceReason !== 'Other' ? true : otherReasonText.trim().length > 0);
+    // also ensure c5 is marked checked in the checklist state (keeps UI consistent)
+    const c5Checked = checklist.find((c) => c.id === 'c5')?.checked === true;
+    return baseOk && invoiceReasonOk && c5Checked;
   }
 
   function toggleChecklistItem(id: string) {
@@ -95,8 +116,15 @@ export default function CompleteTaskPlaceholder({ route }: any) {
     // check cancellation/canceled for both shapes
     const podInfo = getImageData(podPhoto);
     const invInfo = getImageData(invoicePhoto);
-    if (!podInfo || !podInfo.uri || !invInfo || !invInfo.uri) {
-      Alert.alert('Missing photos', 'Please take both POD and Invoice photos before submitting.');
+    // Allow submission when either invoice exists OR a missing reason was selected
+    const invoiceAvailable = !!(invInfo && invInfo.uri);
+    if (!podInfo || !podInfo.uri) {
+      Alert.alert('Missing photos', 'Please take POD photo before submitting.');
+      return;
+    }
+    if (!invoiceAvailable && !missingInvoiceReason) {
+      // prompt for missing invoice reason
+      setMissingReasonVisible(true);
       return;
     }
 
@@ -130,7 +158,12 @@ export default function CompleteTaskPlaceholder({ route }: any) {
       }
 
       await appendImage('podImage', podInfo);
-      await appendImage('invoiceImage', invInfo);
+      if (invoiceAvailable) await appendImage('invoiceImage', invInfo);
+
+      // If invoice not available, append the selected missing reason
+      if (!invoiceAvailable && missingInvoiceReason) {
+        form.append('missingInvoiceReason', missingInvoiceReason + (otherReasonText ? `: ${otherReasonText}` : ''));
+      }
 
       const res = await fetch(`${API_BASE}/driver/completeAssignment`, {
         method: 'POST',
@@ -160,7 +193,8 @@ export default function CompleteTaskPlaceholder({ route }: any) {
       <ThemedText style={{ marginTop: 8, marginBottom: 12 }}>Take POD and Invoice photos, then merge into a PDF.</ThemedText>
 
       <View style={{ marginTop: 8 }}>
-        <View style={{ marginBottom: 16 }}>
+        <View style={styles.card}>
+          <Text style={styles.cardTitle}>POD Photo</Text>
           {renderThumb(podPhoto, 'POD Photo')}
           <Pressable
             style={[styles.photoBtn, { backgroundColor: getImageData(podPhoto) ? '#28a745' : '#1b7ed6' }]}
@@ -170,7 +204,8 @@ export default function CompleteTaskPlaceholder({ route }: any) {
           </Pressable>
         </View>
 
-        <View style={{ marginBottom: 16 }}>
+        <View style={styles.card}>
+          <Text style={styles.cardTitle}>Invoice Photo (optional)</Text>
           {renderThumb(invoicePhoto, 'Invoice Photo')}
           <Pressable
             style={[styles.photoBtn, { backgroundColor: getImageData(invoicePhoto) ? '#28a745' : '#6f42c1' }]}
@@ -189,7 +224,8 @@ export default function CompleteTaskPlaceholder({ route }: any) {
         <Button
           title={processing ? 'Processing...' : 'Complete Task'}
           onPress={mergeToPdf}
-          disabled={processing || !getImageData(podPhoto) || !getImageData(invoicePhoto) || !isChecklistComplete()}
+          // allow submission when POD exists and checklist (with conditional invoice rule) is satisfied
+          disabled={processing || !getImageData(podPhoto) || !isChecklistComplete()}
         />
       </View>
 
@@ -197,21 +233,41 @@ export default function CompleteTaskPlaceholder({ route }: any) {
       <Modal visible={checklistVisible} animationType="slide" onRequestClose={() => setChecklistVisible(false)}>
         <SafeAreaView style={{ flex: 1, padding: 18 }}>
           <Text style={{ fontSize: 18, fontWeight: '700', marginBottom: 12 }}>Checklist</Text>
-          {checklist.map((c) => (
-            <View key={c.id} style={{ marginBottom: 12, borderBottomWidth: 1, borderColor: '#eee', paddingBottom: 8 }}>
-              <Pressable onPress={() => toggleChecklistItem(c.id)} style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
-                <Text style={{ fontWeight: '600' }}>{c.label}</Text>
-                <Text>{c.checked ? '☑' : '⬜'}</Text>
-              </Pressable>
-              <TextInput
-                placeholder="Add comment (optional)"
-                value={c.comment}
-                onChangeText={(t) => setChecklistComment(c.id, t)}
-                style={{ marginTop: 8, borderWidth: 1, borderColor: '#eee', padding: 8, borderRadius: 8 }}
-                multiline
-              />
-            </View>
-          ))}
+          {checklist.map((c) => {
+            // Render the special invoice-reason field differently; it opens the existing reason picker modal
+            if (c.id === 'c5') {
+              const invInfo = getImageData(invoicePhoto);
+              const hasReason = !!missingInvoiceReason;
+              const checkedMark = invInfo ? '☑' : hasReason ? '☑' : '⬜';
+              return (
+                <View key={c.id} style={{ marginBottom: 12, borderBottomWidth: 1, borderColor: '#eee', paddingBottom: 8 }}>
+                  <Pressable onPress={() => setMissingReasonVisible(true)} style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+                    <Text style={{ fontWeight: '600' }}>{c.label}</Text>
+                    <Text>{checkedMark}</Text>
+                  </Pressable>
+                  <Text style={{ marginTop: 8, color: '#444' }}>
+                    {invInfo ? 'Invoice attached' : hasReason ? (missingInvoiceReason === 'Other' ? `Other: ${otherReasonText}` : missingInvoiceReason) : 'Select reason (required if invoice not taken)'}
+                  </Text>
+                </View>
+              );
+            }
+
+            return (
+              <View key={c.id} style={{ marginBottom: 12, borderBottomWidth: 1, borderColor: '#eee', paddingBottom: 8 }}>
+                <Pressable onPress={() => toggleChecklistItem(c.id)} style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+                  <Text style={{ fontWeight: '600' }}>{c.label}</Text>
+                  <Text>{c.checked ? '☑' : '⬜'}</Text>
+                </Pressable>
+                <TextInput
+                  placeholder="Add comment (optional)"
+                  value={c.comment}
+                  onChangeText={(t) => setChecklistComment(c.id, t)}
+                  style={{ marginTop: 8, borderWidth: 1, borderColor: '#eee', padding: 8, borderRadius: 8 }}
+                  multiline
+                />
+              </View>
+            );
+          })}
 
           <View style={{ marginTop: 12, flexDirection: 'row', justifyContent: 'flex-end' }}>
             <Pressable
@@ -222,6 +278,43 @@ export default function CompleteTaskPlaceholder({ route }: any) {
               }}
             >
               <Text style={styles.photoBtnText}>Close</Text>
+            </Pressable>
+          </View>
+        </SafeAreaView>
+      </Modal>
+
+      {/* Missing invoice reason modal */}
+      <Modal visible={missingReasonVisible} animationType="slide" onRequestClose={() => setMissingReasonVisible(false)}>
+        <SafeAreaView style={{ flex: 1, padding: 18 }}>
+          <Text style={{ fontSize: 18, fontWeight: '700', marginBottom: 12 }}>Invoice missing — select reason</Text>
+          {[
+            'Cancellation of PO',
+            'Rejected due to carton damage',
+            'No longer required',
+            'Missed invoice',
+            'Missed booking slot',
+            'Other: (specify the reason for rejection)'
+          ].map((r) => (
+            <Pressable key={r} style={[styles.photoBtn, { marginBottom: 10 }]} onPress={() => {
+              if (r.startsWith('Other')) {
+                setMissingInvoiceReason('Other');
+              } else {
+                setMissingInvoiceReason(r);
+              }
+              // close modal and allow user to submit
+              setMissingReasonVisible(false);
+            }}>
+              <Text style={styles.photoBtnText}>{r}</Text>
+            </Pressable>
+          ))}
+
+          {missingInvoiceReason === 'Other' ? (
+            <TextInput placeholder="Specify reason" value={otherReasonText} onChangeText={setOtherReasonText} style={{ borderWidth: 1, padding: 8, borderRadius: 8, marginTop: 12 }} />
+          ) : null}
+
+          <View style={{ marginTop: 12, flexDirection: 'row', justifyContent: 'flex-end' }}>
+            <Pressable style={[styles.photoBtn, { marginRight: 8 }]} onPress={() => setMissingReasonVisible(false)}>
+              <Text style={styles.photoBtnText}>Cancel</Text>
             </Pressable>
           </View>
         </SafeAreaView>
@@ -238,5 +331,7 @@ const styles = StyleSheet.create({
   placeholder: { color: '#666', padding: 12, textAlign: 'center' },
   photoBtn: { marginTop: 8, backgroundColor: '#1b7ed6', paddingVertical: 10, paddingHorizontal: 12, borderRadius: 8 },
   photoBtnText: { color: '#fff', fontWeight: '600' },
+  card: { backgroundColor: '#fafafa', padding: 12, borderRadius: 10, marginBottom: 12, shadowColor: '#000', shadowOpacity: 0.05, shadowRadius: 6, elevation: 2 },
+  cardTitle: { fontSize: 14, fontWeight: '700', marginBottom: 8, color: '#222' },
 });
 
