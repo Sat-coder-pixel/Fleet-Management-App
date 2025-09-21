@@ -92,24 +92,24 @@ export default function TasksScreen() {
             </View>
 
             <View>
-              <Button
-                title="Complete task"
-                onPress={() => {
-                  // Pass necessary details to the Complete screen so it can submit without missing data
-                  router.push({
-                    pathname: '/complete',
-                    params: {
-                      assignedTaskId: item.assignedTaskId,
-                      truckNo: driver?.truckNo ?? '',
-                      driverName: driver?.driverName ?? '',
-                      invoiceId: item.invoiceId ?? '',
-                      taskId: item.taskId ?? '',
-                    },
-                  } as any);
-                }}
-                disabled={item.isCompleted}
-                color="#28a745"
-              />
+             <Button
+  title="Complete task"
+  onPress={() => {
+    router.push({
+      pathname: '/complete',
+      params: {
+        assignedTaskId: String(item.assignedTaskId),
+        truckNo: String(driver?.truckNo ?? ''),
+        driverName: driver?.driverName ?? '',
+        invoiceId: String(item.invoiceId ?? ''),
+        taskId: String(item.taskId ?? ''),
+      },
+    });
+  }}
+  disabled={item.isCompleted}
+  color="#28a745"
+/>
+
             </View>
           </View>
         </View>

@@ -3,7 +3,7 @@ import { ThemedText } from '@/components/themed-text';
 // Use the legacy expo-file-system API to avoid deprecation warnings for getInfoAsync
 import { API_BASE } from '@/services/api';
 import * as ImagePicker from 'expo-image-picker';
-import { useRouter } from 'expo-router';
+import { useLocalSearchParams, useRouter } from 'expo-router';
 import React, { useState } from 'react';
 import { Alert, Button, Image, KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, Switch, Text, TextInput, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -13,12 +13,21 @@ export default function CompleteTaskPlaceholder({ route }: any) {
   // Merge route.params (native navigation) with query params when opened directly on web.
   // Some environments (web direct URL with ?query) won't populate route.params, so parse
   // window.location.search on web as a safe fallback.
+  const localParams = useLocalSearchParams();
   const webSearchParams: Record<string, string> = {};
   if (Platform.OS === 'web' && typeof window !== 'undefined' && window.location?.search) {
     const usp = new URLSearchParams(window.location.search);
     usp.forEach((v, k) => (webSearchParams[k] = v));
   }
-  const mergedParams: any = { ...(route?.params || {}), ...webSearchParams };
+  console.log(route);
+  
+ 
+  const mergedParams: Record<string, string> = {};
+  for (const [key, value] of Object.entries(localParams)) {
+    mergedParams[key] = String(value);
+  }
+
+  console.log('Merged Params:', mergedParams);
   // route?.params?.assignedTaskId may be passed
   const [podPhoto, setPodPhoto] = useState<ImagePicker.ImagePickerResult | null>(null);
   const [invoicePhoto, setInvoicePhoto] = useState<ImagePicker.ImagePickerResult | null>(null);
