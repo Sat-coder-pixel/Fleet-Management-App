@@ -1,13 +1,13 @@
 import { useRouter } from 'expo-router';
 import React, { useEffect, useRef, useState } from 'react';
 import {
-    ActivityIndicator,
-    Alert,
-    Animated,
-    Button,
-    FlatList,
-    StyleSheet,
-    View,
+  ActivityIndicator,
+  Alert,
+  Animated,
+  Button,
+  FlatList,
+  StyleSheet,
+  View,
 } from 'react-native';
 
 import { ThemedText } from '@/components/themed-text';
@@ -85,16 +85,28 @@ export default function TasksScreen() {
           <View style={styles.actionsColumn}>
             <View style={{ marginBottom: 8 }}>
               <Button
-                title={item.status && item.status.toLowerCase().includes('in progress') ? 'Started' : 'Start task'}
+                title={item.status && String(item.status).toLowerCase().includes('start') ? 'Started' : 'Start task'}
                 onPress={() => onStartTask(item.assignedTaskId)}
-                disabled={item.status && (item.status.toLowerCase().includes('in progress') || item.isCompleted)}
+                disabled={Boolean(item.isCompleted) || (item.status && String(item.status).toLowerCase().includes('start'))}
               />
             </View>
 
             <View>
               <Button
                 title="Complete task"
-                onPress={() => router.push((`/complete?assignedTaskId=${item.assignedTaskId}`) as any)}
+                onPress={() => {
+                  // Pass necessary details to the Complete screen so it can submit without missing data
+                  router.push({
+                    pathname: '/complete',
+                    params: {
+                      assignedTaskId: item.assignedTaskId,
+                      truckNo: driver?.truckNo ?? '',
+                      driverName: driver?.driverName ?? '',
+                      invoiceId: item.invoiceId ?? '',
+                      taskId: item.taskId ?? '',
+                    },
+                  } as any);
+                }}
                 disabled={item.isCompleted}
                 color="#28a745"
               />

@@ -1,14 +1,24 @@
 
 import { ThemedText } from '@/components/themed-text';
 // Use the legacy expo-file-system API to avoid deprecation warnings for getInfoAsync
-import * as FileSystem from 'expo-file-system/legacy';
+import { API_BASE } from '@/services/api';
 import * as ImagePicker from 'expo-image-picker';
-import * as Print from 'expo-print';
+import { useRouter } from 'expo-router';
 import React, { useState } from 'react';
 import { Alert, Button, Image, Modal, Platform, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 export default function CompleteTaskPlaceholder({ route }: any) {
+  const router = useRouter();
+  // Merge route.params (native navigation) with query params when opened directly on web.
+  // Some environments (web direct URL with ?query) won't populate route.params, so parse
+  // window.location.search on web as a safe fallback.
+  const webSearchParams: Record<string, string> = {};
+  if (Platform.OS === 'web' && typeof window !== 'undefined' && window.location?.search) {
+    const usp = new URLSearchParams(window.location.search);
+    usp.forEach((v, k) => (webSearchParams[k] = v));
+  }
+  const mergedParams: any = { ...(route?.params || {}), ...webSearchParams };
   // route?.params?.assignedTaskId may be passed
   const [podPhoto, setPodPhoto] = useState<ImagePicker.ImagePickerResult | null>(null);
   const [invoicePhoto, setInvoicePhoto] = useState<ImagePicker.ImagePickerResult | null>(null);
@@ -86,111 +96,59 @@ export default function CompleteTaskPlaceholder({ route }: any) {
     const podInfo = getImageData(podPhoto);
     const invInfo = getImageData(invoicePhoto);
     if (!podInfo || !podInfo.uri || !invInfo || !invInfo.uri) {
-      Alert.alert('Missing photos', 'Please take both POD and Invoice photos before creating PDF.');
+      Alert.alert('Missing photos', 'Please take both POD and Invoice photos before submitting.');
       return;
     }
 
     setProcessing(true);
     try {
-        // On web, use the image URIs directly (they may be blob: or data: URIs).
-        let html: string;
+      const form = new FormData();
+      console.log(route?.params);
+  // prefer merged params (route.params or search params)
+  form.append('driverName', mergedParams.driverName || mergedParams.drivername || 'Unknown');
+  form.append('truckNo', String(mergedParams.truckNo ?? mergedParams.truckno ?? mergedParams.truckId ?? mergedParams.truckid ?? 'unknown'));
+  form.append('assignedTaskId', String(mergedParams.assignedTaskId ?? mergedParams.assignedtaskid ?? mergedParams.taskId ?? mergedParams.taskid ?? ''));
+  form.append('invoiceId', String(mergedParams.invoiceId ?? mergedParams.invoiceid ?? mergedParams.InvoiceId ?? `INV-${Date.now()}`));
+      form.append('checklist', JSON.stringify(checklist || []));
+
+      async function appendImage(fieldName: string, info: { uri?: string; base64?: string } | null) {
+        if (!info || !info.uri) return;
+        const uri = info.uri;
         if (Platform.OS === 'web') {
-          const podUri = podInfo!.uri;
-          const invUri = invInfo!.uri;
-          console.debug('Creating PDF on web with URIs', { podUri, invUri });
-          html = `
-            <html>
-              <head>
-                <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-                <style>body{font-family: Arial, sans-serif; padding:12px;} img{width:100%; height:auto; margin-bottom:12px;}</style>
-              </head>
-              <body>
-                <h3>POD Photo</h3>
-                <img src="${podUri}" />
-                <div style="page-break-after: always;"></div>
-                <h3>Invoice Photo</h3>
-                <img src="${invUri}" />
-              </body>
-            </html>
-          `;
-
-          const { uri } = await Print.printToFileAsync({ html });
-          // On web the uri is usually a blob or data URL we can open in a new tab so user can save/print.
-          if (uri && (uri.startsWith('data:') || uri.startsWith('blob:') || uri.startsWith('http'))) {
-            // @ts-ignore
-            window.open(uri, '_blank');
-            setProcessing(false);
-            return;
-          }
-
-          // Fallback: try opening directly
-          // @ts-ignore
-          if (uri) { window.open(uri); setProcessing(false); return; }
-          throw new Error('Unable to create PDF on web');
-        }
-
-        // Native flow: use base64 embedded images, or read file to base64 if base64 missing
-        let podBase = podInfo!.base64;
-        let invBase = invInfo!.base64;
-        // if base64 is missing, try reading the file as base64
-        const docDirFallback = (FileSystem as any).documentDirectory || (FileSystem as any).cacheDirectory || '';
-        if (!podBase && podInfo!.uri) {
           try {
-            podBase = await FileSystem.readAsStringAsync(podInfo!.uri, { encoding: (FileSystem as any).EncodingType?.Base64 ?? 'base64' });
-          } catch (readErr) {
-            console.warn('Read pod as base64 failed', readErr);
+            const resp = await fetch(uri);
+            const blob = await resp.blob();
+            form.append(fieldName, blob, `${fieldName}.jpg` as any);
+          } catch (e) {
+            console.warn('Failed to fetch web blob for', fieldName, e);
           }
+        } else {
+          const name = `${fieldName}_${Date.now()}.jpg`;
+          const file: any = { uri, name, type: 'image/jpeg' };
+          form.append(fieldName, file as any);
         }
-        if (!invBase && invInfo!.uri) {
-          try {
-            invBase = await FileSystem.readAsStringAsync(invInfo!.uri, { encoding: (FileSystem as any).EncodingType?.Base64 ?? 'base64' });
-          } catch (readErr) {
-            console.warn('Read invoice as base64 failed', readErr);
-          }
-        }
+      }
 
-        if (!podBase || !invBase) {
-          Alert.alert('Error', 'Captured images do not contain base64 data and could not be read from file.');
-          setProcessing(false);
-          return;
-        }
+      await appendImage('podImage', podInfo);
+      await appendImage('invoiceImage', invInfo);
 
-        html = `
-          <html>
-            <head>
-              <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-              <style>body{font-family: Arial, sans-serif; padding:12px;} img{width:100%; height:auto; margin-bottom:12px;}</style>
-            </head>
-            <body>
-              <h3>POD Photo</h3>
-              <img src="data:image/jpeg;base64,${podBase}" />
-              <div style="page-break-after: always;"></div>
-              <h3>Invoice Photo</h3>
-              <img src="data:image/jpeg;base64,${invBase}" />
-            </body>
-          </html>
-        `;
+      const res = await fetch(`${API_BASE}/driver/completeAssignment`, {
+        method: 'POST',
+        body: form as any,
+      });
 
-        const { uri } = await Print.printToFileAsync({ html });
+      if (!res.ok) {
+        const txt = await res.text();
+        throw new Error(txt || res.statusText);
+      }
 
-        // Ensure directory
-    const docDir = (FileSystem as any).documentDirectory || (FileSystem as any).cacheDirectory || '';
-    const dir = `${docDir}CompletedTasks`;
-    const dirInfo = await FileSystem.getInfoAsync(dir);
-    if (!dirInfo.exists) await FileSystem.makeDirectoryAsync(dir, { intermediates: true });
-
-        const timestamp = Date.now();
-        const fileName = `complete_${timestamp}.pdf`;
-        const dest = `${dir}/${fileName}`;
-
-        // Move/Copy the generated PDF into our folder
-        // printToFileAsync returns a file URI; on native it's a file:// path
-        await FileSystem.copyAsync({ from: uri, to: dest });
-
-        Alert.alert('Saved', `PDF saved to ${dest}`);
-    } catch (e: any) {
-      console.warn(e);
-      Alert.alert('Error', String(e));
+      const json = await res.json();
+      console.debug('completeAssignment response', json);
+      Alert.alert('Success', 'Task completed successfully');
+      router.push('/tasks');
+    } catch (err: any) {
+      console.warn('submitCompletion failed', err);
+      Alert.alert('Error', err?.message || String(err));
     } finally {
       setProcessing(false);
     }
