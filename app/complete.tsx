@@ -5,7 +5,7 @@ import { API_BASE } from '@/services/api';
 import * as ImagePicker from 'expo-image-picker';
 import { useRouter } from 'expo-router';
 import React, { useState } from 'react';
-import { Alert, Button, Image, Modal, Platform, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Alert, Button, Image, Modal, Platform, Pressable, StyleSheet, Text, TextInput, View, ScrollView, KeyboardAvoidingView } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 export default function CompleteTaskPlaceholder({ route }: any) {
@@ -24,7 +24,8 @@ export default function CompleteTaskPlaceholder({ route }: any) {
   const [invoicePhoto, setInvoicePhoto] = useState<ImagePicker.ImagePickerResult | null>(null);
   const [processing, setProcessing] = useState(false);
   const [checklistVisible, setChecklistVisible] = useState(false);
-  const [missingReasonVisible, setMissingReasonVisible] = useState(false);
+  // show inline reason options dropdown when invoice is missing
+  const [showReasonOptions, setShowReasonOptions] = useState(false);
   const [missingInvoiceReason, setMissingInvoiceReason] = useState<string | null>(null);
   const [otherReasonText, setOtherReasonText] = useState('');
   const [checklist, setChecklist] = useState(
@@ -122,9 +123,9 @@ export default function CompleteTaskPlaceholder({ route }: any) {
       Alert.alert('Missing photos', 'Please take POD photo before submitting.');
       return;
     }
-    if (!invoiceAvailable && !missingInvoiceReason) {
-      // prompt for missing invoice reason
-      setMissingReasonVisible(true);
+      if (!invoiceAvailable && !missingInvoiceReason) {
+      // prompt inline dropdown for missing invoice reason
+      setShowReasonOptions(true);
       return;
     }
 
@@ -189,6 +190,8 @@ export default function CompleteTaskPlaceholder({ route }: any) {
 
   return (
     <SafeAreaView style={styles.container}>
+      <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={{ flex: 1 }}>
+        <ScrollView contentContainerStyle={{ padding: 18 }} keyboardShouldPersistTaps="handled">
       <ThemedText type="title">Complete Task</ThemedText>
       <ThemedText style={{ marginTop: 8, marginBottom: 12 }}>Take POD and Invoice photos, then merge into a PDF.</ThemedText>
 
@@ -234,20 +237,55 @@ export default function CompleteTaskPlaceholder({ route }: any) {
         <SafeAreaView style={{ flex: 1, padding: 18 }}>
           <Text style={{ fontSize: 18, fontWeight: '700', marginBottom: 12 }}>Checklist</Text>
           {checklist.map((c) => {
-            // Render the special invoice-reason field differently; it opens the existing reason picker modal
+            // Render the special invoice-reason field differently; show it only when invoice NOT present
             if (c.id === 'c5') {
               const invInfo = getImageData(invoicePhoto);
+              // if invoice is attached, don't show the missing-reason checklist entry
+              if (invInfo) return null;
               const hasReason = !!missingInvoiceReason;
-              const checkedMark = invInfo ? '☑' : hasReason ? '☑' : '⬜';
               return (
                 <View key={c.id} style={{ marginBottom: 12, borderBottomWidth: 1, borderColor: '#eee', paddingBottom: 8 }}>
-                  <Pressable onPress={() => setMissingReasonVisible(true)} style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
-                    <Text style={{ fontWeight: '600' }}>{c.label}</Text>
-                    <Text>{checkedMark}</Text>
-                  </Pressable>
-                  <Text style={{ marginTop: 8, color: '#444' }}>
-                    {invInfo ? 'Invoice attached' : hasReason ? (missingInvoiceReason === 'Other' ? `Other: ${otherReasonText}` : missingInvoiceReason) : 'Select reason (required if invoice not taken)'}
-                  </Text>
+                  <Text style={{ fontWeight: '600', marginBottom: 6 }}>{c.label}</Text>
+                      <Pressable
+                        onPress={() => setShowReasonOptions((s) => !s)}
+                        style={{ borderWidth: 1, borderColor: '#ddd', padding: 10, borderRadius: 8, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}
+                      >
+                        <Text style={{ color: hasReason ? '#111' : '#888' }}>
+                          {hasReason ? (missingInvoiceReason === 'Other' ? `Other: ${otherReasonText || '(specify)'}` : missingInvoiceReason) : 'Select reason'}
+                        </Text>
+                        <Text style={{ color: '#888' }}>▾</Text>
+                      </Pressable>
+                      {showReasonOptions ? (
+                        <View style={{ marginTop: 8 }}>
+                          {[
+                            'Cancellation of PO',
+                            'Rejected due to carton damage',
+                            'No longer required',
+                            'Missed invoice',
+                            'Missed booking slot',
+                            'Other: (specify the reason for rejection)'
+                          ].map((r) => (
+                            <Pressable key={r} style={[styles.photoBtn, { marginBottom: 8 }]} onPress={() => {
+                              if (r.startsWith('Other')) {
+                                setMissingInvoiceReason('Other');
+                                // show text input immediately
+                                setOtherReasonText('');
+                              } else {
+                                setMissingInvoiceReason(r);
+                              }
+                              // mark checklist invoice reason as checked
+                              setChecklist((prev) => prev.map((c) => (c.id === 'c5' ? { ...c, checked: true } : c)));
+                              // close options
+                              setShowReasonOptions(false);
+                            }}>
+                              <Text style={styles.photoBtnText}>{r}</Text>
+                            </Pressable>
+                          ))}
+                          {missingInvoiceReason === 'Other' ? (
+                            <TextInput placeholder="Specify reason" value={otherReasonText} onChangeText={setOtherReasonText} style={{ borderWidth: 1, padding: 8, borderRadius: 8, marginTop: 6 }} />
+                          ) : null}
+                        </View>
+                      ) : null}
                 </View>
               );
             }
@@ -283,42 +321,9 @@ export default function CompleteTaskPlaceholder({ route }: any) {
         </SafeAreaView>
       </Modal>
 
-      {/* Missing invoice reason modal */}
-      <Modal visible={missingReasonVisible} animationType="slide" onRequestClose={() => setMissingReasonVisible(false)}>
-        <SafeAreaView style={{ flex: 1, padding: 18 }}>
-          <Text style={{ fontSize: 18, fontWeight: '700', marginBottom: 12 }}>Invoice missing — select reason</Text>
-          {[
-            'Cancellation of PO',
-            'Rejected due to carton damage',
-            'No longer required',
-            'Missed invoice',
-            'Missed booking slot',
-            'Other: (specify the reason for rejection)'
-          ].map((r) => (
-            <Pressable key={r} style={[styles.photoBtn, { marginBottom: 10 }]} onPress={() => {
-              if (r.startsWith('Other')) {
-                setMissingInvoiceReason('Other');
-              } else {
-                setMissingInvoiceReason(r);
-              }
-              // close modal and allow user to submit
-              setMissingReasonVisible(false);
-            }}>
-              <Text style={styles.photoBtnText}>{r}</Text>
-            </Pressable>
-          ))}
-
-          {missingInvoiceReason === 'Other' ? (
-            <TextInput placeholder="Specify reason" value={otherReasonText} onChangeText={setOtherReasonText} style={{ borderWidth: 1, padding: 8, borderRadius: 8, marginTop: 12 }} />
-          ) : null}
-
-          <View style={{ marginTop: 12, flexDirection: 'row', justifyContent: 'flex-end' }}>
-            <Pressable style={[styles.photoBtn, { marginRight: 8 }]} onPress={() => setMissingReasonVisible(false)}>
-              <Text style={styles.photoBtnText}>Cancel</Text>
-            </Pressable>
-          </View>
-        </SafeAreaView>
-      </Modal>
+      {/* Missing invoice reason: inline dropdown used above when invoice is missing */}
+        </ScrollView>
+      </KeyboardAvoidingView>
     </SafeAreaView>
   );
 }
