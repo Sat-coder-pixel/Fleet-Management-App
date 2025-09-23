@@ -7,7 +7,7 @@ export default function TabLayout() {
     <Stack>
       <Stack.Screen name="index" options={{ headerShown: false }} />
       {/* tasks should show a header so the back button appears when navigated to */}
-      <Stack.Screen name="tasks" options={{ title: 'Tasks', headerShown: true }} />
+      <Stack.Screen name="Pending Tasks" options={{ title: 'Tasks', headerShown: true }} />
     </Stack>
   );
 }
