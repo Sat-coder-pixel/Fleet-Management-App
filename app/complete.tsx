@@ -199,7 +199,7 @@ form.append('checklist', JSON.stringify(checklistPayload));
       <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={{ flex: 1 }}>
         <ScrollView contentContainerStyle={{ padding: 18 }} keyboardShouldPersistTaps="handled">
       <ThemedText type="title">Complete Task</ThemedText>
-      <ThemedText style={{ marginTop: 8, marginBottom: 12 }}>Take POD and Invoice photos, then merge into a PDF.</ThemedText>
+      <ThemedText style={{ marginTop: 8, marginBottom: 12 }}>Take POD and Invoice photos.</ThemedText>
 
       <View style={{ marginTop: 8 }}>
         <View style={styles.card}>
@@ -286,7 +286,7 @@ form.append('checklist', JSON.stringify(checklistPayload));
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, padding: 18, backgroundColor: '#fff' },
+  container: { flex: 1, padding: 18,paddingTop:5, backgroundColor: '#fff' },
   row: { flexDirection: 'row', gap: 12 },
   thumbWrap: { flex: 1, alignItems: 'center' },
   thumb: { width: '100%', height: 180, borderRadius: 8, resizeMode: 'cover', backgroundColor: '#eee' },

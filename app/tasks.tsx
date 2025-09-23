@@ -85,9 +85,9 @@ export default function TasksScreen() {
           <View style={styles.actionsColumn}>
             <View style={{ marginBottom: 8 }}>
               <Button
-                title={item.status && (/in[- ]progress/i).test(String(item.status)) ? 'Started' : 'Start task'}
+                title={item.status && item.status == 'Started' ? 'Started' : 'Start task'}
                 onPress={() => onStartTask(item.assignedTaskId)}
-                disabled={Boolean(item.isCompleted) || (item.status && (/in[- ]progress/i).test(String(item.status)))}
+                disabled={Boolean(item.isCompleted) || (item.status && (item.status == 'Started' || item.status == 'In Progress'))}
               />
             </View>
 
