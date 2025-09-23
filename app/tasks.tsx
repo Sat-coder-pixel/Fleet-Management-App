@@ -1,3 +1,6 @@
+import { ThemedText } from '@/components/themed-text';
+import api from '@/services/api';
+import storage from '@/storage/store';
 import { useNavigation, useRouter } from 'expo-router';
 import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import {
@@ -9,10 +12,7 @@ import {
   StyleSheet,
   View,
 } from 'react-native';
-
-import { ThemedText } from '@/components/themed-text';
-import api from '@/services/api';
-import storage from '@/storage/store';
+import { showMessage } from 'react-native-flash-message';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 export default function TasksScreen() {
@@ -60,7 +60,13 @@ export default function TasksScreen() {
     if (!driver) return;
     try {
       await api.startAssignedTask(assignedTaskId, driver.truckNo);
-      Alert.alert('Success', 'Task started');
+showMessage({
+  message: "Success",
+  description: "Task started",
+  type: "success", // 'success', 'info', 'warning', 'danger'
+  backgroundColor: "#4BB543", // optional override
+  color: "#fff", // text color
+});
       const updated = tasks.map((item) => (item.assignedTaskId === assignedTaskId ? { ...item, status: 'In Progress' } : item));
       setTasks(updated);
       await storage.saveTasksForTruck(driver.truckNo, updated);

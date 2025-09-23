@@ -203,7 +203,7 @@ form.append('checklist', JSON.stringify(checklistPayload));
     <SafeAreaView style={styles.container}>
       <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={{ flex: 1 }}>
         <ScrollView contentContainerStyle={{ padding: 18 }} keyboardShouldPersistTaps="handled">
-      <ThemedText style={{ marginTop: 8, marginBottom: 12 }}>Take POD and Invoice photos.</ThemedText>
+      <ThemedText style={{ marginTop: 8, marginBottom: 12,fontSize: 16,fontWeight: '600' }}>Take POD and Invoice photos.</ThemedText>
 
       <View style={{ marginTop: 8 }}>
         <View style={styles.card}>
