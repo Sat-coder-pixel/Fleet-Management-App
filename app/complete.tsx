@@ -5,7 +5,8 @@ import { API_BASE } from '@/services/api';
 import * as ImagePicker from 'expo-image-picker';
 import { useLocalSearchParams, useNavigation, useRouter } from 'expo-router';
 import React, { useLayoutEffect, useState } from 'react';
-import { Alert, Button, Image, KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, Switch, Text, TextInput, View } from 'react-native';
+import { Alert, Image, Platform, Pressable, StyleSheet, Switch, Text, TextInput, View } from 'react-native';
+import { KeyboardAwareScrollView } from 'react-native-keyboard-aware-scroll-view';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 export default function CompleteTaskPlaceholder({ route }: any) {
@@ -201,8 +202,12 @@ form.append('checklist', JSON.stringify(checklistPayload));
 
   return (
     <SafeAreaView style={styles.container}>
-      <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={{ flex: 1 }}>
-        <ScrollView contentContainerStyle={{ padding: 18 }} keyboardShouldPersistTaps="handled">
+ <KeyboardAwareScrollView
+    contentContainerStyle={{ padding: 18, paddingBottom: 100 }}
+    extraScrollHeight={100}
+    enableOnAndroid={true}
+    keyboardShouldPersistTaps="handled"
+  >
       <ThemedText style={{ marginTop: 8, marginBottom: 12,fontSize: 16,fontWeight: '600' }}>Take POD and Invoice photos.</ThemedText>
 
       <View style={{ marginTop: 8 }}>
@@ -273,18 +278,47 @@ form.append('checklist', JSON.stringify(checklistPayload));
           </View>
         ) : null}
 
-        <Button
-          title={processing ? 'Processing...' : 'Complete Task'}
-          onPress={mergeToPdf}
-          disabled={processing || !getImageData(podPhoto) || ( (!getImageData(invoicePhoto) && !missingInvoiceReason) || (missingInvoiceReason === 'Other' && otherReasonText.trim().length === 0) ) }
-        />
+        <Pressable
+  onPress={mergeToPdf}
+  disabled={
+    processing ||
+    !getImageData(podPhoto) ||
+    (
+      (!getImageData(invoicePhoto) && !missingInvoiceReason) ||
+      (missingInvoiceReason === 'Other' && otherReasonText.trim().length === 0)
+    )
+  }
+  style={({ pressed }) => {
+    const isDisabled =
+      processing ||
+      !getImageData(podPhoto) ||
+      (
+        (!getImageData(invoicePhoto) && !missingInvoiceReason) ||
+        (missingInvoiceReason === 'Other' && otherReasonText.trim().length === 0)
+      );
+
+    return {
+      backgroundColor: isDisabled ? '#ccc' : '#1b7ed6', // grey if disabled, blue if enabled
+      opacity: pressed ? 0.8 : 1,
+      paddingVertical: 14,
+      borderRadius: 8,
+      alignItems: 'center',
+      marginTop: 16,
+    };
+  }}
+>
+  <Text style={{ color: '#fff', fontWeight: '600', fontSize: 16 }}>
+    {processing ? 'Processing...' : 'Complete Task'}
+  </Text>
+</Pressable>
+
+
       </View>
 
       {/* checklist removed — simplified UI: POD, Invoice, Reason */}
 
       {/* Missing invoice reason: inline dropdown used above when invoice is missing */}
-        </ScrollView>
-      </KeyboardAvoidingView>
+        </KeyboardAwareScrollView>
     </SafeAreaView>
   );
 }
