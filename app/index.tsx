@@ -1,5 +1,5 @@
 import { useRouter } from 'expo-router';
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -25,6 +25,30 @@ export default function LoginScreen() {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
+  const [checking, setChecking] = useState(true);
+
+  useEffect(() => {
+    let mounted = true;
+    (async () => {
+      try {
+        const sel = await storage.getSelectedDriver();
+        if (!mounted) return;
+        if (sel) {
+          // already signed in: skip login
+          router.replace('/tasks');
+          return;
+        }
+      } catch (e) {
+        console.warn('failed to read selected driver', e);
+      } finally {
+        if (mounted) setChecking(false);
+      }
+    })();
+
+    return () => {
+      mounted = false;
+    };
+  }, []);
 
   async function onLogin() {
     if (!username || !password) {
@@ -74,6 +98,8 @@ export default function LoginScreen() {
       setLoading(false);
     }
   }
+
+  if (checking) return <SafeAreaView style={styles.container}><ActivityIndicator style={{ marginTop: 40 }} /></SafeAreaView>;
 
   return (
     <SafeAreaView style={styles.container}>
