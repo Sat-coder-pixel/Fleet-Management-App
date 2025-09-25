@@ -6,9 +6,9 @@ import * as ImagePicker from 'expo-image-picker';
 import { useLocalSearchParams, useNavigation, useRouter } from 'expo-router';
 import React, { useLayoutEffect, useState } from 'react';
 import { Alert, Image, Platform, Pressable, StyleSheet, Switch, Text, TextInput, View } from 'react-native';
+import DocumentScanner from 'react-native-document-scanner-plugin';
 import { KeyboardAwareScrollView } from 'react-native-keyboard-aware-scroll-view';
 import { SafeAreaView } from 'react-native-safe-area-context';
-
 export default function CompleteTaskPlaceholder({ route }: any) {
   const router = useRouter();
   const navigation = useNavigation();
@@ -49,6 +49,44 @@ export default function CompleteTaskPlaceholder({ route }: any) {
     const { status } = await ImagePicker.requestCameraPermissionsAsync();
     return status === 'granted';
   }
+
+
+async function scanInvoicePhoto() {
+  const ok = await requestCameraPermissions();
+  if (!ok) {
+    Alert.alert('Permission required', 'Camera permission is required to scan documents');
+    return;
+  }
+  try {
+    const result = await DocumentScanner.scanDocument({
+      
+      letUserAdjustCrop: true,
+      maxNumDocuments: 1,
+      croppedImageQuality: 90,
+    });
+
+    const scannedImages = result?.scannedImages ?? [];
+
+    if (scannedImages.length > 0) {
+      const scannedUri = scannedImages[0];
+
+      // Fake ImagePickerResult structure to fit your existing code
+      setInvoicePhoto({
+        assets: [{ uri: scannedUri }],
+      } as ImagePicker.ImagePickerResult);
+
+      // Clear any missing reason
+      setMissingInvoiceReason(null);
+      setOtherReasonText('');
+    } else {
+      Alert.alert('Scan canceled', 'No image was captured.');
+    }
+  } catch (error: any) {
+    console.error('Scanner error', error);
+    Alert.alert('Error', error.message || 'Failed to scan invoice.');
+  }
+}
+
 
   async function takePhoto(setter: (p: ImagePicker.ImagePickerResult) => void, label: string) {
     const ok = await requestCameraPermissions();
@@ -226,11 +264,16 @@ form.append('checklist', JSON.stringify(checklistPayload));
           <Text style={styles.cardTitle}>Invoice Photo (optional)</Text>
           {renderThumb(invoicePhoto, 'Invoice Photo')}
           <Pressable
-            style={[styles.photoBtn, { backgroundColor: getImageData(invoicePhoto) ? '#28a745' : '#6f42c1' }]}
-            onPress={() => takePhoto(setInvoicePhoto, 'Invoice Photo')}
-          >
-            <Text style={styles.photoBtnText}>{getImageData(invoicePhoto) ? 'Invoice Taken' : 'Take Invoice Photo'}</Text>
-          </Pressable>
+                style={[
+                  styles.photoBtn,
+                  { backgroundColor: getImageData(invoicePhoto) ? '#28a745' : '#6f42c1' },
+                ]}
+                onPress={scanInvoicePhoto} // ✅ Changed from takePhoto()
+              >
+                <Text style={styles.photoBtnText}>
+                  {getImageData(invoicePhoto) ? 'Invoice Taken' : 'Scan Invoice'}
+                </Text>
+    </Pressable>
         </View>
       </View>
 
