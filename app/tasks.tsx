@@ -85,8 +85,11 @@ showMessage({
       <Animated.View style={[styles.card, { transform: [{ translateY }], opacity }]}>
         <View style={styles.cardContent}>
           <View style={{ marginBottom: 8 }}>
-            <ThemedText type="defaultSemiBold">{item.name}</ThemedText>
+            <ThemedText type="defaultSemiBold">InvoiceNo.: {item.invoiceId}</ThemedText>
+            <ThemedText type="defaultSemiBold">OrderNo.: {item.orderNumber}</ThemedText>
             <ThemedText style={styles.desc}>{item.description}</ThemedText>
+            <ThemedText style={styles.desc}>{item.name}</ThemedText>
+            <ThemedText style={styles.desc}>Zone:{item.zoneNo}</ThemedText>
             <ThemedText style={styles.small}>Qty: {item.quantityShipped ?? item.quantityOrdered ?? '-'}</ThemedText>
             <ThemedText style={styles.small}>Assigned: {new Date(item.assignedAt || Date.now()).toLocaleString()}</ThemedText>
           </View>
