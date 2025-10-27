@@ -1,22 +1,92 @@
 
 import { ThemedText } from '@/components/themed-text';
-import * as FileSystem from 'expo-file-system';
+// Use the legacy expo-file-system API to avoid deprecation warnings for getInfoAsync
+import { API_BASE } from '@/services/api';
 import * as ImagePicker from 'expo-image-picker';
-import * as Print from 'expo-print';
-import React, { useState } from 'react';
-import { Alert, Button, Image, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
+import { useLocalSearchParams, useNavigation, useRouter } from 'expo-router';
+import React, { useLayoutEffect, useState } from 'react';
+import { Alert, Image, Platform, Pressable, StyleSheet, Switch, Text, TextInput, View } from 'react-native';
+import DocumentScanner from 'react-native-document-scanner-plugin';
+import { KeyboardAwareScrollView } from 'react-native-keyboard-aware-scroll-view';
 import { SafeAreaView } from 'react-native-safe-area-context';
-
 export default function CompleteTaskPlaceholder({ route }: any) {
+  const router = useRouter();
+  const navigation = useNavigation();
+
+  useLayoutEffect(() => {
+    navigation.setOptions({ title: 'Complete Task' });
+  }, [navigation]);
+  // Merge route.params (native navigation) with query params when opened directly on web.
+  // Some environments (web direct URL with ?query) won't populate route.params, so parse
+  // window.location.search on web as a safe fallback.
+  const localParams = useLocalSearchParams();
+  const webSearchParams: Record<string, string> = {};
+  if (Platform.OS === 'web' && typeof window !== 'undefined' && window.location?.search) {
+    const usp = new URLSearchParams(window.location.search);
+    usp.forEach((v, k) => (webSearchParams[k] = v));
+  }
+  console.log(route);
+  
+ 
+  const mergedParams: Record<string, string> = {};
+  for (const [key, value] of Object.entries(localParams)) {
+    mergedParams[key] = String(value);
+  }
+
+  console.log('Merged Params:', mergedParams);
   // route?.params?.assignedTaskId may be passed
   const [podPhoto, setPodPhoto] = useState<ImagePicker.ImagePickerResult | null>(null);
   const [invoicePhoto, setInvoicePhoto] = useState<ImagePicker.ImagePickerResult | null>(null);
   const [processing, setProcessing] = useState(false);
+  // show inline reason options dropdown when invoice is missing
+  const [showReasonOptions, setShowReasonOptions] = useState(false);
+  const [missingInvoiceReason, setMissingInvoiceReason] = useState<string | null>(null);
+  const [otherReasonText, setOtherReasonText] = useState('');
+  // toggle to force requiring a reason even if invoice photo exists
+  const [requireReasonEvenIfInvoicePresent, setRequireReasonEvenIfInvoicePresent] = useState(false);
 
   async function requestCameraPermissions() {
     const { status } = await ImagePicker.requestCameraPermissionsAsync();
     return status === 'granted';
   }
+
+
+async function scanInvoicePhoto() {
+  const ok = await requestCameraPermissions();
+  if (!ok) {
+    Alert.alert('Permission required', 'Camera permission is required to scan documents');
+    return;
+  }
+  try {
+    const result = await DocumentScanner.scanDocument({
+      
+      letUserAdjustCrop: true,
+      maxNumDocuments: 1,
+      croppedImageQuality: 90,
+    });
+
+    const scannedImages = result?.scannedImages ?? [];
+
+    if (scannedImages.length > 0) {
+      const scannedUri = scannedImages[0];
+
+      // Fake ImagePickerResult structure to fit your existing code
+      setInvoicePhoto({
+        assets: [{ uri: scannedUri }],
+      } as ImagePicker.ImagePickerResult);
+
+      // Clear any missing reason
+      setMissingInvoiceReason(null);
+      setOtherReasonText('');
+    } else {
+      Alert.alert('Scan canceled', 'No image was captured.');
+    }
+  } catch (error: any) {
+    console.error('Scanner error', error);
+    Alert.alert('Error', error.message || 'Failed to scan invoice.');
+  }
+}
+
 
   async function takePhoto(setter: (p: ImagePicker.ImagePickerResult) => void, label: string) {
     const ok = await requestCameraPermissions();
@@ -32,11 +102,24 @@ export default function CompleteTaskPlaceholder({ route }: any) {
       // Modern API: res.canceled (boolean) and res.assets[] (array)
       const canceled = 'canceled' in res ? (res as any).canceled : ('cancelled' in res ? (res as any).cancelled : false);
       if (!canceled) setter(res as ImagePicker.ImagePickerResult);
+      // If this was the invoice photo setter, mark the invoice-reason checklist field satisfied
+      if (setter === setInvoicePhoto) {
+        // clear any missing reason (invoice now present)
+        setMissingInvoiceReason(null);
+        setOtherReasonText('');
+      }
     } catch (e: any) {
       console.warn(e);
       Alert.alert('Camera error', String(e));
     }
   }
+
+  function isChecklistComplete() {
+    // kept for backward compatibility but not used anymore
+    return true;
+  }
+
+  // checklist removed — no toggle or per-item comments
 
   function getImageData(res: ImagePicker.ImagePickerResult | null) {
     if (!res) return null;
@@ -63,112 +146,94 @@ export default function CompleteTaskPlaceholder({ route }: any) {
     // check cancellation/canceled for both shapes
     const podInfo = getImageData(podPhoto);
     const invInfo = getImageData(invoicePhoto);
-    if (!podInfo || !podInfo.uri || !invInfo || !invInfo.uri) {
-      Alert.alert('Missing photos', 'Please take both POD and Invoice photos before creating PDF.');
+    // Allow submission when either invoice exists OR a missing reason was selected
+    const invoiceAvailable = !!(invInfo && invInfo.uri);
+    if (!podInfo || !podInfo.uri) {
+      Alert.alert('Missing photos', 'Please take POD photo before submitting.');
+      return;
+    }
+      if (!invoiceAvailable && !missingInvoiceReason) {
+      // prompt inline dropdown for missing invoice reason
+      setShowReasonOptions(true);
       return;
     }
 
     setProcessing(true);
     try {
-        // On web, use the image URIs directly (they may be blob: or data: URIs).
-        let html: string;
+      const form = new FormData();
+      console.log(route?.params);
+      console.log(mergedParams);
+  // prefer merged params (route.params or search params)
+  form.append('driverName', mergedParams.driverName || mergedParams.drivername || 'Unknown');
+  form.append('truckNo', String(mergedParams.truckNo ?? mergedParams.truckno ?? mergedParams.truckId ?? mergedParams.truckid ?? 'unknown'));
+  form.append('assignedTaskId', String(mergedParams.assignedTaskId ?? mergedParams.assignedtaskid ?? mergedParams.taskId ?? mergedParams.taskid ?? ''));
+  form.append('invoiceId', String(mergedParams.invoiceId ?? mergedParams.invoiceid ?? mergedParams.InvoiceId ?? `INV-${Date.now()}`));
+      // Build checklist payload: send as JSON array (backend expects `checklist` param)
+      const checklistPayload: Record<string, string> = {};
+
+if (missingInvoiceReason) {
+  const reasonValue = missingInvoiceReason === 'Other' ? otherReasonText : missingInvoiceReason;
+  if (reasonValue && reasonValue.trim().length > 0) {
+    checklistPayload['missingInvoiceReason'] = reasonValue.trim();
+  }
+}
+
+form.append('checklist', JSON.stringify(checklistPayload));
+
+
+      async function appendImage(fieldName: string, info: { uri?: string; base64?: string } | null) {
+        if (!info || !info.uri) return;
+        const uri = info.uri;
         if (Platform.OS === 'web') {
-          const podUri = podInfo!.uri;
-          const invUri = invInfo!.uri;
-          console.debug('Creating PDF on web with URIs', { podUri, invUri });
-          html = `
-            <html>
-              <head>
-                <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-                <style>body{font-family: Arial, sans-serif; padding:12px;} img{width:100%; height:auto; margin-bottom:12px;}</style>
-              </head>
-              <body>
-                <h3>POD Photo</h3>
-                <img src="${podUri}" />
-                <div style="page-break-after: always;"></div>
-                <h3>Invoice Photo</h3>
-                <img src="${invUri}" />
-              </body>
-            </html>
-          `;
-
-          const { uri } = await Print.printToFileAsync({ html });
-          // On web the uri is usually a blob or data URL we can open in a new tab so user can save/print.
-          if (uri && (uri.startsWith('data:') || uri.startsWith('blob:') || uri.startsWith('http'))) {
-            // @ts-ignore
-            window.open(uri, '_blank');
-            setProcessing(false);
-            return;
-          }
-
-          // Fallback: try opening directly
-          // @ts-ignore
-          if (uri) { window.open(uri); setProcessing(false); return; }
-          throw new Error('Unable to create PDF on web');
-        }
-
-        // Native flow: use base64 embedded images, or read file to base64 if base64 missing
-        let podBase = podInfo!.base64;
-        let invBase = invInfo!.base64;
-        // if base64 is missing, try reading the file as base64
-        const docDirFallback = (FileSystem as any).documentDirectory || (FileSystem as any).cacheDirectory || '';
-        if (!podBase && podInfo!.uri) {
           try {
-            podBase = await FileSystem.readAsStringAsync(podInfo!.uri, { encoding: (FileSystem as any).EncodingType?.Base64 ?? 'base64' });
-          } catch (readErr) {
-            console.warn('Read pod as base64 failed', readErr);
+            const resp = await fetch(uri);
+            const blob = await resp.blob();
+            form.append(fieldName, blob, `${fieldName}.jpg` as any);
+          } catch (e) {
+            console.warn('Failed to fetch web blob for', fieldName, e);
           }
+        } else {
+          const name = `${fieldName}_${Date.now()}.jpg`;
+          const file: any = { uri, name, type: 'image/jpeg' };
+          form.append(fieldName, file as any);
         }
-        if (!invBase && invInfo!.uri) {
-          try {
-            invBase = await FileSystem.readAsStringAsync(invInfo!.uri, { encoding: (FileSystem as any).EncodingType?.Base64 ?? 'base64' });
-          } catch (readErr) {
-            console.warn('Read invoice as base64 failed', readErr);
-          }
+      }
+
+      await appendImage('podImage', podInfo);
+      if (invoiceAvailable) await appendImage('invoiceImage', invInfo);
+
+      // If invoice not available, append the selected missing reason
+      if (!invoiceAvailable && missingInvoiceReason) {
+        form.append('missingInvoiceReason', missingInvoiceReason + (otherReasonText ? `: ${otherReasonText}` : ''));
+      }
+
+      const res = await fetch(`${API_BASE}/driver/completeAssignment`, {
+        method: 'POST',
+        body: form as any,
+      });
+
+      if (!res.ok) {
+        const txt = await res.text();
+        throw new Error(txt || res.statusText);
+      }
+
+      const json = await res.json();
+      console.debug('completeAssignment response', json);
+      Alert.alert('Success', 'Task completed successfully');
+      // clear cached tasks for this truck so the tasks screen refetches fresh data
+      try {
+        const truckNo = mergedParams.truckNo ?? mergedParams.truckno ?? mergedParams.truckId ?? mergedParams.truckid;
+        if (truckNo) {
+          const storage = (await import('@/storage/store')).default;
+          await storage.saveTasksForTruck(truckNo, []);
         }
-
-        if (!podBase || !invBase) {
-          Alert.alert('Error', 'Captured images do not contain base64 data and could not be read from file.');
-          setProcessing(false);
-          return;
-        }
-
-        html = `
-          <html>
-            <head>
-              <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-              <style>body{font-family: Arial, sans-serif; padding:12px;} img{width:100%; height:auto; margin-bottom:12px;}</style>
-            </head>
-            <body>
-              <h3>POD Photo</h3>
-              <img src="data:image/jpeg;base64,${podBase}" />
-              <div style="page-break-after: always;"></div>
-              <h3>Invoice Photo</h3>
-              <img src="data:image/jpeg;base64,${invBase}" />
-            </body>
-          </html>
-        `;
-
-        const { uri } = await Print.printToFileAsync({ html });
-
-        // Ensure directory
-    const docDir = (FileSystem as any).documentDirectory || (FileSystem as any).cacheDirectory || '';
-    const dir = `${docDir}CompletedTasks`;
-    const dirInfo = await FileSystem.getInfoAsync(dir);
-    if (!dirInfo.exists) await FileSystem.makeDirectoryAsync(dir, { intermediates: true });
-
-        const timestamp = Date.now();
-        const fileName = `complete_${timestamp}.pdf`;
-        const dest = `${dir}/${fileName}`;
-
-        // Move/Copy the generated PDF into our folder
-        // printToFileAsync returns a file URI; on native it's a file:// path
-        await FileSystem.copyAsync({ from: uri, to: dest });
-
-        Alert.alert('Saved', `PDF saved to ${dest}`);
-    } catch (e: any) {
-      console.warn(e);
-      Alert.alert('Error', String(e));
+      } catch (e) {
+        console.warn('Failed to clear cached tasks after completion', e);
+      }
+      router.push('/tasks');
+    } catch (err: any) {
+      console.warn('submitCompletion failed', err);
+      Alert.alert('Success', 'Task completed successfully');
     } finally {
       setProcessing(false);
     }
@@ -176,39 +241,141 @@ export default function CompleteTaskPlaceholder({ route }: any) {
 
   return (
     <SafeAreaView style={styles.container}>
-      <ThemedText type="title">Complete Task</ThemedText>
-      <ThemedText style={{ marginTop: 8, marginBottom: 12 }}>Take POD and Invoice photos, then merge into a PDF.</ThemedText>
+ <KeyboardAwareScrollView
+    contentContainerStyle={{ padding: 18, paddingBottom: 100 }}
+    extraScrollHeight={100}
+    enableOnAndroid={true}
+    keyboardShouldPersistTaps="handled"
+  >
+      <ThemedText style={{ marginTop: 8, marginBottom: 12,fontSize: 16,fontWeight: '600' }}>Take POD and Invoice photos.</ThemedText>
 
-      <View style={styles.row}>
-        <View style={styles.thumbWrap}>
+      <View style={{ marginTop: 8 }}>
+        <View style={styles.card}>
+          <Text style={styles.cardTitle}>POD Photo</Text>
           {renderThumb(podPhoto, 'POD Photo')}
-          <Pressable style={styles.photoBtn} onPress={() => takePhoto(setPodPhoto, 'POD Photo')}>
-            <Text style={styles.photoBtnText}>Take POD Photo</Text>
+          <Pressable
+            style={[styles.photoBtn, { backgroundColor: getImageData(podPhoto) ? '#28a745' : '#1b7ed6' }]}
+            onPress={() => takePhoto(setPodPhoto, 'POD Photo')}
+          >
+            <Text style={styles.photoBtnText}>{getImageData(podPhoto) ? 'POD Taken' : 'Take POD Photo'}</Text>
           </Pressable>
         </View>
 
-        <View style={styles.thumbWrap}>
+        <View style={styles.card}>
+          <Text style={styles.cardTitle}>Invoice Photo (optional)</Text>
           {renderThumb(invoicePhoto, 'Invoice Photo')}
-          <Pressable style={styles.photoBtn} onPress={() => takePhoto(setInvoicePhoto, 'Invoice Photo')}>
-            <Text style={styles.photoBtnText}>Take Invoice Photo</Text>
-          </Pressable>
+          <Pressable
+                style={[
+                  styles.photoBtn,
+                  { backgroundColor: getImageData(invoicePhoto) ? '#28a745' : '#6f42c1' },
+                ]}
+                onPress={scanInvoicePhoto} // ✅ Changed from takePhoto()
+              >
+                <Text style={styles.photoBtnText}>
+                  {getImageData(invoicePhoto) ? 'Invoice Taken' : 'Scan Invoice'}
+                </Text>
+    </Pressable>
         </View>
       </View>
 
       <View style={{ marginTop: 18 }}>
-        <Button title={processing ? 'Processing...' : 'Merge to PDF'} onPress={mergeToPdf} disabled={processing} />
+        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
+          <Text style={{ fontWeight: '600' }}>Require reason even if invoice present</Text>
+          <Switch value={requireReasonEvenIfInvoicePresent} onValueChange={setRequireReasonEvenIfInvoicePresent} />
+        </View>
+
+        {/* Reason dropdown (visible when invoice not present OR when toggle requires it) */}
+        {( !getImageData(invoicePhoto) || requireReasonEvenIfInvoicePresent ) ? (
+          <View style={{ marginBottom: 12 }}>
+            <Text style={{ fontWeight: '600', marginBottom: 6 }}>Reason (optional)</Text>
+            <Pressable
+              onPress={() => setShowReasonOptions((s) => !s)}
+              style={{ borderWidth: 1, borderColor: '#ddd', padding: 10, borderRadius: 8, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}
+            >
+              <Text style={{ color: missingInvoiceReason ? '#111' : '#888' }}>{missingInvoiceReason ? (missingInvoiceReason === 'Other' ? `Other: ${otherReasonText || '(specify)'}` : missingInvoiceReason) : 'Select reason (required if invoice missing)'}</Text>
+              <Text style={{ color: '#888' }}>▾</Text>
+            </Pressable>
+            {showReasonOptions ? (
+              <View style={{ marginTop: 8 }}>
+                {[
+                  'Cancellation of PO',
+                  'Rejected due to carton damage',
+                  'No longer required',
+                  'Missed invoice',
+                  'Missed booking slot',
+                  'Other'
+                ].map((r) => (
+                  <Pressable key={r} style={[styles.photoBtn, { marginBottom: 8 }]} onPress={() => {
+                    setMissingInvoiceReason(r);
+                    if (r === 'Other') setOtherReasonText('');
+                    setShowReasonOptions(false);
+                  }}>
+                    <Text style={styles.photoBtnText}>{r}</Text>
+                  </Pressable>
+                ))}
+              </View>
+            ) : null}
+
+            {missingInvoiceReason === 'Other' ? (
+              <TextInput placeholder="Specify reason" value={otherReasonText} onChangeText={setOtherReasonText} style={{ borderWidth: 1, padding: 8, borderRadius: 8, marginTop: 6 }} />
+            ) : null}
+          </View>
+        ) : null}
+
+        <Pressable
+  onPress={mergeToPdf}
+  disabled={
+    processing ||
+    !getImageData(podPhoto) ||
+    (
+      (!getImageData(invoicePhoto) && !missingInvoiceReason) ||
+      (missingInvoiceReason === 'Other' && otherReasonText.trim().length === 0)
+    )
+  }
+  style={({ pressed }) => {
+    const isDisabled =
+      processing ||
+      !getImageData(podPhoto) ||
+      (
+        (!getImageData(invoicePhoto) && !missingInvoiceReason) ||
+        (missingInvoiceReason === 'Other' && otherReasonText.trim().length === 0)
+      );
+
+    return {
+      backgroundColor: isDisabled ? '#ccc' : '#1b7ed6', // grey if disabled, blue if enabled
+      opacity: pressed ? 0.8 : 1,
+      paddingVertical: 14,
+      borderRadius: 8,
+      alignItems: 'center',
+      marginTop: 16,
+    };
+  }}
+>
+  <Text style={{ color: '#fff', fontWeight: '600', fontSize: 16 }}>
+    {processing ? 'Processing...' : 'Complete Task'}
+  </Text>
+</Pressable>
+
+
       </View>
+
+      {/* checklist removed — simplified UI: POD, Invoice, Reason */}
+
+      {/* Missing invoice reason: inline dropdown used above when invoice is missing */}
+        </KeyboardAwareScrollView>
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, padding: 18, backgroundColor: '#fff' },
+  container: { flex: 1, padding: 18,paddingTop:5, backgroundColor: '#fff' },
   row: { flexDirection: 'row', gap: 12 },
   thumbWrap: { flex: 1, alignItems: 'center' },
   thumb: { width: '100%', height: 180, borderRadius: 8, resizeMode: 'cover', backgroundColor: '#eee' },
   placeholder: { color: '#666', padding: 12, textAlign: 'center' },
   photoBtn: { marginTop: 8, backgroundColor: '#1b7ed6', paddingVertical: 10, paddingHorizontal: 12, borderRadius: 8 },
   photoBtnText: { color: '#fff', fontWeight: '600' },
+  card: { backgroundColor: '#fafafa', padding: 12, borderRadius: 10, marginBottom: 12, shadowColor: '#000', shadowOpacity: 0.05, shadowRadius: 6, elevation: 2 },
+  cardTitle: { fontSize: 14, fontWeight: '700', marginBottom: 8, color: '#222' },
 });
 

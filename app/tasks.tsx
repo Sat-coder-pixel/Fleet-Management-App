@@ -1,21 +1,26 @@
-import { useRouter } from 'expo-router';
-import React, { useEffect, useRef, useState } from 'react';
-import {
-    ActivityIndicator,
-    Alert,
-    Animated,
-    Button,
-    FlatList,
-    StyleSheet,
-    View,
-} from 'react-native';
-
 import { ThemedText } from '@/components/themed-text';
 import api from '@/services/api';
 import storage from '@/storage/store';
+import { useNavigation, useRouter } from 'expo-router';
+import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import {
+  ActivityIndicator,
+  Alert,
+  Animated,
+  Button,
+  FlatList,
+  StyleSheet,
+  View,
+} from 'react-native';
+import { showMessage } from 'react-native-flash-message';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 export default function TasksScreen() {
+  const navigation = useNavigation();
+
+  useLayoutEffect(() => {
+    navigation.setOptions({ title: 'Pending Tasks' });
+  }, [navigation]);
   const [driver, setDriver] = useState<any | null>(null);
   const [tasks, setTasks] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
@@ -55,7 +60,13 @@ export default function TasksScreen() {
     if (!driver) return;
     try {
       await api.startAssignedTask(assignedTaskId, driver.truckNo);
-      Alert.alert('Success', 'Task started');
+showMessage({
+  message: "Success",
+  description: "Task started",
+  type: "success", // 'success', 'info', 'warning', 'danger'
+  backgroundColor: "#4BB543", // optional override
+  color: "#fff", // text color
+});
       const updated = tasks.map((item) => (item.assignedTaskId === assignedTaskId ? { ...item, status: 'In Progress' } : item));
       setTasks(updated);
       await storage.saveTasksForTruck(driver.truckNo, updated);
@@ -74,8 +85,11 @@ export default function TasksScreen() {
       <Animated.View style={[styles.card, { transform: [{ translateY }], opacity }]}>
         <View style={styles.cardContent}>
           <View style={{ marginBottom: 8 }}>
-            <ThemedText type="defaultSemiBold">{item.name}</ThemedText>
+            <ThemedText type="defaultSemiBold">InvoiceNo.: {item.invoiceId}</ThemedText>
+            <ThemedText type="defaultSemiBold">OrderNo.: {item.orderNumber}</ThemedText>
             <ThemedText style={styles.desc}>{item.description}</ThemedText>
+            <ThemedText style={styles.desc}>{item.name}</ThemedText>
+            <ThemedText style={styles.desc}>Zone:{item.zoneNo}</ThemedText>
             <ThemedText style={styles.small}>Qty: {item.quantityShipped ?? item.quantityOrdered ?? '-'}</ThemedText>
             <ThemedText style={styles.small}>Assigned: {new Date(item.assignedAt || Date.now()).toLocaleString()}</ThemedText>
           </View>
@@ -85,19 +99,31 @@ export default function TasksScreen() {
           <View style={styles.actionsColumn}>
             <View style={{ marginBottom: 8 }}>
               <Button
-                title={item.status && item.status.toLowerCase().includes('in progress') ? 'Started' : 'Start task'}
+                title={item.status && item.status == 'Started' ? 'Started' : 'Start task'}
                 onPress={() => onStartTask(item.assignedTaskId)}
-                disabled={item.status && (item.status.toLowerCase().includes('in progress') || item.isCompleted)}
+                disabled={Boolean(item.isCompleted) || (item.status && (item.status == 'Started' || item.status == 'In Progress'))}
               />
             </View>
 
             <View>
-              <Button
-                title="Complete task"
-                onPress={() => router.push((`/complete?assignedTaskId=${item.assignedTaskId}`) as any)}
-                disabled={item.isCompleted}
-                color="#28a745"
-              />
+             <Button
+  title="Complete task"
+  onPress={() => {
+    router.push({
+      pathname: '/complete',
+      params: {
+        assignedTaskId: String(item.assignedTaskId),
+        truckNo: String(driver?.truckNo ?? ''),
+        driverName: driver?.driverName ?? '',
+        invoiceId: String(item.invoiceId ?? ''),
+        taskId: String(item.taskId ?? ''),
+      },
+    });
+  }}
+  disabled={item.isCompleted}
+  color="#28a745"
+/>
+
             </View>
           </View>
         </View>
@@ -108,8 +134,28 @@ export default function TasksScreen() {
   return (
     <SafeAreaView style={styles.container}>
       <View style={styles.header}>
-        <ThemedText type="title">Truck #{driver?.truckNo}</ThemedText>
-        <ThemedText style={styles.meta}>{driver?.driverName}</ThemedText>
+        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+          <View>
+            <ThemedText type="title">Truck #{driver?.truckNo}</ThemedText>
+            <ThemedText style={styles.meta}>{driver?.driverName}</ThemedText>
+          </View>
+          <View>
+            <Button
+              title="Logout"
+              color="#d9534f"
+              onPress={async () => {
+                // Clear selected driver and cached tasks for this truck so next login fetches fresh data
+                try {
+                  if (driver?.truckNo) await storage.saveTasksForTruck(driver.truckNo, []);
+                } catch (e) {
+                  console.warn('Failed to clear cached tasks on logout', e);
+                }
+                await storage.saveSelectedDriver(null as any);
+                router.replace('/');
+              }}
+            />
+          </View>
+        </View>
       </View>
 
       <FlatList

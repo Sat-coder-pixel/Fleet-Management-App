@@ -1,19 +1,18 @@
 import { useRouter } from 'expo-router';
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   ActivityIndicator,
-  Animated,
-  Pressable,
-  ScrollView,
+  Alert,
+  Button,
   StyleSheet,
   Text,
+  TextInput,
   View,
 } from 'react-native';
-
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { ThemedText } from '@/components/themed-text';
-import api from '@/services/api';
+import { API_BASE } from '@/services/api';
 import storage from '@/storage/store';
 
 // Hide the navigation header for this landing screen so there's no back button.
@@ -21,26 +20,28 @@ export const options = {
   headerShown: false,
 };
 
-export default function WelcomeScreen() {
-  const [drivers, setDrivers] = useState<any[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [open, setOpen] = useState(false);
-  const [selected, setSelected] = useState<any | null>(null);
+export default function LoginScreen() {
   const router = useRouter();
-  const anim = useRef(new Animated.Value(0)).current;
+  const [username, setUsername] = useState('');
+  const [password, setPassword] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [checking, setChecking] = useState(true);
 
   useEffect(() => {
     let mounted = true;
     (async () => {
       try {
-        const res = await api.fetchAvailableDrivers();
+        const sel = await storage.getSelectedDriver();
         if (!mounted) return;
-        setDrivers(res || []);
-      } catch (e: any) {
-        setError(String(e));
+        if (sel) {
+          // already signed in: skip login
+          router.replace('/tasks');
+          return;
+        }
+      } catch (e) {
+        console.warn('failed to read selected driver', e);
       } finally {
-        if (mounted) setLoading(false);
+        if (mounted) setChecking(false);
       }
     })();
 
@@ -49,126 +50,104 @@ export default function WelcomeScreen() {
     };
   }, []);
 
-  function toggle() {
-    const to = open ? 0 : 1;
-    // useNativeDriver:false because animating layout-like properties and web support
-    Animated.timing(anim, { toValue: to, duration: 220, useNativeDriver: false }).start();
-    setOpen(!open);
+  async function onLogin() {
+    if (!username || !password) {
+      Alert.alert('Validation', 'Please enter username and password');
+      return;
+    }
+
+    setLoading(true);
+    try {
+      const res = await fetch(`${API_BASE}/driver/driverLogin`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username, password }),
+      });
+
+      let json: any = null;
+      try {
+        json = await res.json();
+      } catch (e) {
+        json = null;
+      }
+
+      if (!res.ok) {
+        const msg = json?.message || json?.error || 'Login failed';
+        Alert.alert('Login failed', String(msg));
+        return;
+      }
+
+      // Expecting response like: { "truckNo": 1230 }
+      const truckNo = json?.truckNo ?? json?.truckno ?? json?.data?.truckNo;
+      const driverName = json?.driverName ?? json?.drivername ?? username;
+
+      if (!truckNo) {
+        Alert.alert('Login', 'Server did not return a truck number');
+        return;
+      }
+
+      // Save selected driver
+      await storage.saveSelectedDriver({ truckNo, driverName });
+
+      // Navigate to tasks (replace so back doesn't return to login)
+      router.replace('/tasks');
+    } catch (err) {
+      console.warn('Login error', err);
+      Alert.alert('Error', 'Unable to login. Check network.');
+    } finally {
+      setLoading(false);
+    }
   }
 
-  async function onConfirm() {
-    if (!selected) return;
-    await storage.saveSelectedDriver(selected);
-    router.push('/tasks');
-  }
+  if (checking) return <SafeAreaView style={styles.container}><ActivityIndicator style={{ marginTop: 40 }} /></SafeAreaView>;
 
-  if (loading) return <ActivityIndicator style={{ flex: 1 }} />;
-
-  const scaleY = anim.interpolate({ inputRange: [0, 1], outputRange: [0.8, 1] });
-  const dropdownOpacity = anim.interpolate({ inputRange: [0, 1], outputRange: [0, 1] });
   return (
-    <SafeAreaView style={styles.container} >
-      <ScrollView contentContainerStyle={{ paddingBottom: 40 }}>
-      <ThemedText type="title">Welcome</ThemedText>
-      <ThemedText style={styles.subtitle}>Select your truck</ThemedText>
-      {error ? <ThemedText style={styles.error}>{error}</ThemedText> : null}
+    <SafeAreaView style={styles.container}>
+      <ThemedText type="title">FleetManage</ThemedText>
+      <Text style={styles.subtitle}>Sign in to continue</Text>
 
-      <View style={styles.dropdownWrap}>
-        <Pressable style={styles.selector} onPress={toggle}>
-          <Text style={styles.selectorText}>{selected ? `Truck #${selected.truckNo} — ${selected.driverName}` : 'Choose a truck...'}</Text>
-        </Pressable>
+      <View style={{ marginTop: 18 }}>
+        <Text style={styles.label}>Username</Text>
+        <TextInput
+          value={username}
+          onChangeText={setUsername}
+          placeholder="username"
+          style={styles.input}
+          autoCapitalize="none"
+          autoCorrect={false}
+        />
 
-        {/** Use an Animated ScrollView so the list scrolls when taller than the animated height */}
-        {/** Create an animated component instance inline */}
-        {(() => {
-          const AnimatedScroll = Animated.createAnimatedComponent(ScrollView);
-          return (
-          <AnimatedScroll
-          style={[styles.dropdown, { transform: [{ scaleY }], opacity: dropdownOpacity }]}
-              contentContainerStyle={{ paddingVertical: 6 }}
-              showsVerticalScrollIndicator
-              nestedScrollEnabled
-              keyboardShouldPersistTaps="handled"
-              scrollEnabled={open}
-              pointerEvents={open ? 'auto' : 'none'}
-            >
-              {drivers.length === 0 ? (
-                <ThemedText style={{ padding: 12 }}>No trucks available</ThemedText>
-                ) : (
-                drivers.map((d) => (
-                  <Pressable
-                    key={String(d.truckNo ?? d.driverId)}
-                    style={[styles.item, selected?.truckNo === d.truckNo && styles.selectedItem]}
-                    onPress={() => {
-                      setSelected(d);
-                      // close the dropdown when a selection is made
-                      if (open) toggle();
-                    }}
-                  >
-                    <View style={{ flex: 1 }}>
-                      <Text style={styles.itemTitle}>Truck #{d.truckNo}</Text>
-                      <Text style={styles.itemMeta}>{d.driverName} · {d.truckType}</Text>
-                    </View>
-                    <View style={{ width: 40, alignItems: 'flex-end' }}>
-                      {selected?.truckNo === d.truckNo ? <Text style={styles.check}>✓</Text> : null}
-                    </View>
-                  </Pressable>
-                ))
-              )}
-            </AnimatedScroll>
-          );
-        })()}
-
-        <View style={styles.actions}>
-          <Pressable style={[styles.button, !selected && styles.buttonDisabled]} onPress={onConfirm} disabled={!selected}>
-            <Text style={styles.buttonText}>Continue</Text>
-          </Pressable>
-        </View>
+        <Text style={[styles.label, { marginTop: 12 }]}>Password</Text>
+        <TextInput
+          value={password}
+          onChangeText={setPassword}
+          placeholder="password"
+          secureTextEntry
+          style={styles.input}
+        />
       </View>
-      </ScrollView>
+
+      <View style={{ marginTop: 22 }}>
+        {loading ? (
+          <ActivityIndicator />
+        ) : (
+          <Button title="Sign in" onPress={onLogin} />
+        )}
+      </View>
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, padding: 20, backgroundColor: '#f7fbff' },
+  container: { flex: 1, padding: 30, backgroundColor: '#f7fbff' },
   subtitle: { marginTop: 6, color: '#556', marginBottom: 12 },
-  error: { color: 'crimson', marginTop: 8 },
-  dropdownWrap: { width: '100%', marginTop: 8 },
-  selector: {
+  label: { color: '#334', marginBottom: 6 },
+  input: {
     backgroundColor: '#fff',
-    padding: 14,
-    borderRadius: 10,
+    padding: 12,
+    borderRadius: 8,
     borderWidth: 1,
     borderColor: '#e6eef8',
-    shadowColor: '#000',
-    shadowOpacity: 0.03,
-    shadowRadius: 6,
   },
-  selectorText: { color: '#223', fontSize: 16 },
-  dropdown: {
-    overflow: 'hidden',
-    marginTop: 8,
-    backgroundColor: '#fff',
-    borderRadius: 10,
-    borderWidth: 1,
-    borderColor: '#e6eef8',
-    // position absolute so it doesn't push down the Continue button when collapsed
-    position: 'absolute',
-    left: 0,
-    right: 0,
-    top: 68,
-    zIndex: 20,
-    maxHeight: 260,
-  },
-  item: { padding: 12, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-  itemTitle: { fontWeight: '600', color: '#123' },
-  itemMeta: { color: '#667', marginTop: 4 },
-  selectedItem: { backgroundColor: 'rgba(34,139,230,0.06)' },
-  check: { color: '#1b7ed6', fontWeight: '700' },
-  actions: { marginTop: 12, alignItems: 'flex-end', zIndex: 5 },
-  button: { backgroundColor: '#1b7ed6', paddingVertical: 10, paddingHorizontal: 18, borderRadius: 8 },
-  buttonDisabled: { backgroundColor: '#aac8ea' },
-  buttonText: { color: '#fff', fontWeight: '600' },
 });
 
