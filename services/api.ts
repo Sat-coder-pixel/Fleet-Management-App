@@ -79,7 +79,13 @@ export async function fetchTasksForTruck(truckId: number | string): Promise<Task
   const tasks = Array.isArray(data) ? data : (data && Array.isArray((data as any).tasks) ? (data as any).tasks : null);
   // If server returned an array (even empty), return it. Only fall back to dummy when no data at all.
   if (tasks === null) return DUMMY_TASKS;
-  return tasks;
+
+  // Filter out tasks that were attempted to complete
+  const filteredTasks = tasks.filter(
+    (t: any) => !t.isAttemptedToComplete
+  );
+
+  return filteredTasks;
   } catch (e) {
     console.warn('fetchTasksForTruck failed, returning dummy', e);
     return DUMMY_TASKS;
