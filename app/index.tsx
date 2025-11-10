@@ -1,5 +1,5 @@
 import { useRouter } from 'expo-router';
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -16,9 +16,7 @@ import { API_BASE } from '@/services/api';
 import storage from '@/storage/store';
 
 // Hide the navigation header for this landing screen so there's no back button.
-export const options = {
-  headerShown: false,
-};
+export const options = { headerShown: false };
 
 export default function LoginScreen() {
   const router = useRouter();
@@ -26,6 +24,7 @@ export default function LoginScreen() {
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [checking, setChecking] = useState(true);
+  const pressedRef = useRef(false); // guard against double-tap
 
   useEffect(() => {
     let mounted = true;
@@ -34,7 +33,6 @@ export default function LoginScreen() {
         const sel = await storage.getSelectedDriver();
         if (!mounted) return;
         if (sel) {
-          // already signed in: skip login
           router.replace('/tasks');
           return;
         }
@@ -44,66 +42,71 @@ export default function LoginScreen() {
         if (mounted) setChecking(false);
       }
     })();
-
-    return () => {
-      mounted = false;
-    };
+    return () => { mounted = false; };
   }, []);
 
   async function onLogin() {
-    if (!username || !password) {
+    if (pressedRef.current) return;
+    const u = username.trim();
+    const p = password; // don’t trim password to avoid changing it
+    if (!u || !p) {
       Alert.alert('Validation', 'Please enter username and password');
       return;
     }
 
+    pressedRef.current = true;
     setLoading(true);
     try {
       const res = await fetch(`${API_BASE}/driver/driverLogin`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ username, password }),
+        body: JSON.stringify({ username: u, password: p }),
       });
 
       let json: any = null;
       try {
         json = await res.json();
-      } catch (e) {
-        json = null;
+      } catch {
+        // leave json null; handle below
       }
 
       if (!res.ok) {
-        const msg = json?.message || json?.error || 'Login failed';
+        const msg = json?.message || json?.error || `HTTP ${res.status}`;
         Alert.alert('Login failed', String(msg));
         return;
       }
 
-      // Expecting response like: { "truckNo": 1230 }
       const truckNo = json?.truckNo ?? json?.truckno ?? json?.data?.truckNo;
-      const driverName = json?.driverName ?? json?.drivername ?? username;
+      const driverName = json?.driverName ?? json?.drivername ?? u;
 
       if (!truckNo) {
         Alert.alert('Login', 'Server did not return a truck number');
         return;
       }
 
-      // Save selected driver
       await storage.saveSelectedDriver({ truckNo, driverName });
-
-      // Navigate to tasks (replace so back doesn't return to login)
+      setPassword(''); // clear sensitive input
       router.replace('/tasks');
-    } catch (err) {
+    } catch (err: any) {
       console.warn('Login error', err);
-      Alert.alert('Error', 'Unable to login. Check network.');
+      Alert.alert('Error', err?.friendlyMessage || 'Unable to login. Check network.');
     } finally {
       setLoading(false);
+      pressedRef.current = false;
     }
   }
 
-  if (checking) return <SafeAreaView style={styles.container}><ActivityIndicator style={{ marginTop: 40 }} /></SafeAreaView>;
+  if (checking) {
+    return (
+      <SafeAreaView style={styles.container}>
+        <ActivityIndicator style={{ marginTop: 40 }} />
+      </SafeAreaView>
+    );
+  }
 
   return (
     <SafeAreaView style={styles.container}>
-      <ThemedText type="title">FleetManage</ThemedText>
+      <ThemedText type="title">MMM Logistics</ThemedText>
       <Text style={styles.subtitle}>Sign in to continue</Text>
 
       <View style={{ marginTop: 18 }}>
@@ -115,6 +118,7 @@ export default function LoginScreen() {
           style={styles.input}
           autoCapitalize="none"
           autoCorrect={false}
+          returnKeyType="next"
         />
 
         <Text style={[styles.label, { marginTop: 12 }]}>Password</Text>
@@ -124,15 +128,13 @@ export default function LoginScreen() {
           placeholder="password"
           secureTextEntry
           style={styles.input}
+          returnKeyType="done"
+          onSubmitEditing={onLogin}
         />
       </View>
 
       <View style={{ marginTop: 22 }}>
-        {loading ? (
-          <ActivityIndicator />
-        ) : (
-          <Button title="Sign in" onPress={onLogin} />
-        )}
+        {loading ? <ActivityIndicator /> : <Button title="Sign in" onPress={onLogin} />}
       </View>
     </SafeAreaView>
   );
@@ -150,4 +152,3 @@ const styles = StyleSheet.create({
     borderColor: '#e6eef8',
   },
 });
-
