@@ -2,7 +2,9 @@
 import { ThemedText } from '@/components/themed-text';
 import { API_BASE } from '@/services/api';
 
-// IMPORTANT: use legacy shim for SDK 54 to avoid deprecation/runtime breaks
+// SDK 54: use legacy shim
+// NOTE: import the legacy namespace and reference FileSystemUploadType from that namespace.
+// Avoid importing FileSystemUploadType as a named import because it may be undefined in some build contexts.
 import * as FileSystem from 'expo-file-system/legacy';
 
 import * as ImagePicker from 'expo-image-picker';
@@ -35,7 +37,6 @@ const REASONS = [
   'Other',
 ];
 
-// ---------- small utils ----------
 const pad2 = (n: number) => String(n).padStart(2, '0');
 function nowStampAU() {
   const d = new Date();
@@ -48,34 +49,7 @@ function nowStampAU() {
   return `${yyyy}${MM}${DD}_${hh}${mm}${ss}`;
 }
 
-// Pure JS Base64 decoder → Uint8Array (no Buffer/atob required)
-function base64ToBytes(b64: string) {
-  const alphabet =
-    'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/=';
-  let bytes: number[] = [];
-  let enc1, enc2, enc3, enc4;
-  let i = 0;
-
-  // remove url-safe variants and whitespace
-  b64 = b64.replace(/-/g, '+').replace(/_/g, '/').replace(/\s/g, '');
-
-  while (i < b64.length) {
-    enc1 = alphabet.indexOf(b64.charAt(i++));
-    enc2 = alphabet.indexOf(b64.charAt(i++));
-    enc3 = alphabet.indexOf(b64.charAt(i++));
-    enc4 = alphabet.indexOf(b64.charAt(i++));
-
-    const chr1 = (enc1 << 2) | (enc2 >> 4);
-    const chr2 = ((enc2 & 15) << 4) | (enc3 >> 2);
-    const chr3 = ((enc3 & 3) << 6) | enc4;
-
-    bytes.push(chr1);
-    if (enc3 !== 64) bytes.push(chr2);
-    if (enc4 !== 64) bytes.push(chr3);
-  }
-  return new Uint8Array(bytes);
-}
-
+/* ---------- Component ---------- */
 export default function CompleteTaskPlaceholder() {
   const router = useRouter();
   const navigation = useNavigation();
@@ -84,7 +58,7 @@ export default function CompleteTaskPlaceholder() {
     navigation.setOptions({ title: 'Complete Task' });
   }, [navigation]);
 
-  // --- Params merge ---
+  // params
   const localParams = useLocalSearchParams();
   const mergedParams: Record<string, string> = useMemo(() => {
     const out: Record<string, string> = {};
@@ -98,55 +72,47 @@ export default function CompleteTaskPlaceholder() {
     mergedParams.InvoiceId ??
     `INV-${Date.now()}`;
 
-  // --- State ---
-  const [podPhoto, setPodPhoto] =
-    useState<ImagePicker.ImagePickerResult | null>(null);
-  const [invoicePhoto, setInvoicePhoto] =
-    useState<ImagePicker.ImagePickerResult | null>(null);
+  // state
+  const [podPhoto, setPodPhoto] = useState<ImagePicker.ImagePickerResult | null>(null);
+  const [invoicePhoto, setInvoicePhoto] = useState<ImagePicker.ImagePickerResult | null>(null);
 
   const [processing, setProcessing] = useState(false);
   const [uploading, setUploading] = useState(false);
 
-  // Saving to gallery toggle (default true); we’ll only ask gallery permission if this is true.
+  // only ask for gallery when needed
   const [saveToGallery, setSaveToGallery] = useState(true);
-
-  // Remember permissions so we don't re-ask
   const [cameraGranted, setCameraGranted] = useState<boolean>(false);
   const [galleryGranted, setGalleryGranted] = useState<boolean>(false);
 
-  // Ensure we read current permissions once
   useEffect(() => {
     (async () => {
       try {
         const cam = await ImagePicker.getCameraPermissionsAsync();
         setCameraGranted(cam.status === 'granted');
-
         const lib = await MediaLibrary.getPermissionsAsync();
         setGalleryGranted(lib.status === 'granted');
       } catch {}
     })();
   }, []);
 
-  // Reason handling
+  // reason
   const [showReasonOptions, setShowReasonOptions] = useState(false);
-  const [missingInvoiceReason, setMissingInvoiceReason] =
-    useState<string | null>(null);
+  const [missingInvoiceReason, setMissingInvoiceReason] = useState<string | null>(null);
   const [otherReasonText, setOtherReasonText] = useState('');
   const [requireReasonEvenIfInvoicePresent, setRequireReasonEvenIfInvoicePresent] =
     useState(false);
 
-  // After successful OneDrive upload, store item paths + server filenames
+  // upload results
   const [podItemPath, setPodItemPath] = useState<string | null>(null);
   const [invoiceItemPath, setInvoiceItemPath] = useState<string | null>(null);
   const [podServerFileName, setPodServerFileName] = useState<string | null>(null);
-  const [invoiceServerFileName, setInvoiceServerFileName] =
-    useState<string | null>(null);
+  const [invoiceServerFileName, setInvoiceServerFileName] = useState<string | null>(null);
 
-  // Progress (0-100); null = not uploading
+  // progress
   const [podProgress, setPodProgress] = useState<number | null>(null);
   const [invoiceProgress, setInvoiceProgress] = useState<number | null>(null);
 
-  // Guard double taps
+  // click guard
   const [taking, setTaking] = useState<{ pod?: boolean; inv?: boolean }>({});
   async function guarded(action: () => Promise<void>, key: 'pod' | 'inv') {
     if (taking[key]) return;
@@ -158,35 +124,27 @@ export default function CompleteTaskPlaceholder() {
     }
   }
 
-  // ---- Permission helpers (never re-ask if already granted) ----
+  /* ---------- Permissions ---------- */
   async function ensureCameraPermission() {
     if (cameraGranted) return true;
     const { status } = await ImagePicker.requestCameraPermissionsAsync();
     const ok = status === 'granted';
     setCameraGranted(ok);
-    if (!ok) {
-      Alert.alert(
-        'Permission required',
-        'Camera permission is needed to take a photo.'
-      );
-    }
+    if (!ok) Alert.alert('Permission required', 'Camera permission is needed to take a photo.');
     return ok;
   }
 
   async function ensureGalleryPermissionIfNeeded(reason: 'pick' | 'save') {
-    // Only check when we need it (picking or saving)
     if (galleryGranted) return true;
-
-    // If we can ask, ask once. If denied permanently, guide to settings.
-    const query = await MediaLibrary.getPermissionsAsync();
-    if (query.status === 'granted') {
+    const current = await MediaLibrary.getPermissionsAsync();
+    if (current.status === 'granted') {
       setGalleryGranted(true);
       return true;
     }
-    if (!query.canAskAgain) {
+    if (!current.canAskAgain) {
       Alert.alert(
         'Gallery access needed',
-        `Please allow photo library access in system settings to ${reason === 'pick' ? 'pick images' : 'save photos to gallery'}.`
+        `Enable photo library access in device Settings to ${reason === 'pick' ? 'pick an image' : 'save photos to gallery'}.`
       );
       return false;
     }
@@ -196,13 +154,13 @@ export default function CompleteTaskPlaceholder() {
     if (!ok) {
       Alert.alert(
         'Gallery access required',
-        `We need gallery permission to ${reason === 'pick' ? 'select a photo' : 'save photos'}.`
+        `We need photo library access to ${reason === 'pick' ? 'select an image' : 'save photos'}.`
       );
     }
     return ok;
   }
 
-  // File names
+  /* ---------- filenames ---------- */
   function makeFilenames() {
     const stamp = nowStampAU();
     const inv = invoiceIdParam;
@@ -212,111 +170,87 @@ export default function CompleteTaskPlaceholder() {
     };
   }
 
+  /* ---------- capture / pick ---------- */
   async function scanInvoicePhoto() {
-    // Scanner uses camera only (no gallery permission)
     const ok = await ensureCameraPermission();
     if (!ok) return;
 
     try {
+      // Cast options as any because the plugin's TS types may not include some runtime options
       const result = await DocumentScanner.scanDocument({
         letUserAdjustCrop: true,
         maxNumDocuments: 1,
         croppedImageQuality: 90,
-      });
+      } as any);
+      const scanned = result?.scannedImages ?? [];
+      if (!scanned.length) {
+        Alert.alert('Scan canceled', 'No image was captured.');
+        return;
+      }
 
-      const scannedImages = result?.scannedImages ?? [];
-      if (scannedImages.length > 0) {
-        const scannedUri = scannedImages[0];
-        setInvoicePhoto({ assets: [{ uri: scannedUri }] } as ImagePicker.ImagePickerResult);
+      const uri = scanned[0];
+      setInvoicePhoto({ assets: [{ uri }] } as ImagePicker.ImagePickerResult);
+      setMissingInvoiceReason(null);
+      setOtherReasonText('');
+      setInvoiceItemPath(null);
+      setInvoiceServerFileName(null);
+      setInvoiceProgress(null);
+
+      if (saveToGallery) {
+        const g = await ensureGalleryPermissionIfNeeded('save');
+        if (g) await MediaLibrary.saveToLibraryAsync(uri);
+      }
+    } catch (e: any) {
+      Alert.alert('Error', e?.message || 'Failed to scan invoice.');
+    }
+  }
+
+  async function takePhoto(setter: (p: ImagePicker.ImagePickerResult) => void) {
+    const ok = await ensureCameraPermission();
+    if (!ok) return;
+
+    try {
+      const res = await ImagePicker.launchCameraAsync({ base64: false, quality: 0.8 });
+      const canceled = 'canceled' in res ? (res as any).canceled : false;
+      if (canceled) return;
+
+      setter(res as ImagePicker.ImagePickerResult);
+
+      const imgUri = (res as any).assets?.[0]?.uri;
+      if (imgUri && saveToGallery) {
+        const g = await ensureGalleryPermissionIfNeeded('save');
+        if (g) await MediaLibrary.saveToLibraryAsync(imgUri);
+      }
+
+      if (setter === setInvoicePhoto) {
         setMissingInvoiceReason(null);
         setOtherReasonText('');
         setInvoiceItemPath(null);
         setInvoiceServerFileName(null);
         setInvoiceProgress(null);
-
-        // Only ask gallery permission if user wants to save to gallery
-        if (saveToGallery) {
-          const g = await ensureGalleryPermissionIfNeeded('save');
-          if (g) await MediaLibrary.saveToLibraryAsync(scannedUri);
-        }
       } else {
-        Alert.alert('Scan canceled', 'No image was captured.');
-      }
-    } catch (error: any) {
-      console.error('Scanner error', error);
-      Alert.alert('Error', error.message || 'Failed to scan invoice.');
-    }
-  }
-
-  async function takePhoto(
-    setter: (p: ImagePicker.ImagePickerResult) => void,
-    label: string
-  ) {
-    // Camera only
-    const ok = await ensureCameraPermission();
-    if (!ok) return;
-
-    try {
-      const res = await ImagePicker.launchCameraAsync({
-        base64: true,
-        quality: 0.7,
-      });
-      const canceled =
-        'canceled' in res
-          ? (res as any).canceled
-          : 'cancelled' in res
-          ? (res as any).cancelled
-          : false;
-
-      if (!canceled) {
-        setter(res as ImagePicker.ImagePickerResult);
-
-        const imgUri = (res as any).assets?.[0]?.uri;
-
-        // Only save-to-gallery if user enabled AND we have permission (ask once)
-        if (imgUri && saveToGallery) {
-          const g = await ensureGalleryPermissionIfNeeded('save');
-          if (g) await MediaLibrary.saveToLibraryAsync(imgUri);
-        }
-
-        // Reset uploaded refs if user retakes
-        if (setter === setInvoicePhoto) {
-          setMissingInvoiceReason(null);
-          setOtherReasonText('');
-          setInvoiceItemPath(null);
-          setInvoiceServerFileName(null);
-          setInvoiceProgress(null);
-        }
-        if (setter === setPodPhoto) {
-          setPodItemPath(null);
-          setPodServerFileName(null);
-          setPodProgress(null);
-        }
+        setPodItemPath(null);
+        setPodServerFileName(null);
+        setPodProgress(null);
       }
     } catch (e: any) {
-      console.warn(e);
       Alert.alert('Camera error', String(e));
     }
   }
 
   async function pickFromGallery(setter: (p: ImagePicker.ImagePickerResult) => void) {
-    // Ask ONLY for picking
     const ok = await ensureGalleryPermissionIfNeeded('pick');
     if (!ok) return;
 
     try {
-      const res = await ImagePicker.launchImageLibraryAsync({
-        base64: true,
-        quality: 0.7,
-      });
+      const res = await ImagePicker.launchImageLibraryAsync({ base64: false, quality: 0.8 });
       if (!res.canceled) {
         setter(res as ImagePicker.ImagePickerResult);
         if (setter === setPodPhoto) {
           setPodItemPath(null);
           setPodServerFileName(null);
           setPodProgress(null);
-        }
-        if (setter === setInvoicePhoto) {
+        } else {
           setInvoiceItemPath(null);
           setInvoiceServerFileName(null);
           setInvoiceProgress(null);
@@ -325,9 +259,11 @@ export default function CompleteTaskPlaceholder() {
         }
       }
     } catch (e: any) {
-      console.warn('Gallery pick error', e);
+      Alert.alert('Gallery error', String(e));
     }
   }
+
+  /* ---------- helpers to read/stream ---------- */
 
   function getImageData(res: ImagePicker.ImagePickerResult | null): ImgData {
     if (!res) return null;
@@ -340,124 +276,100 @@ export default function CompleteTaskPlaceholder() {
     return null;
   }
 
-  function renderThumb(img: ImagePicker.ImagePickerResult | null, label: string) {
-    const info = getImageData(img);
-    if (!info || !info.uri) return <Text style={styles.placeholder}>{label} (not taken)</Text>;
-    if (Platform.OS === 'web')
-      return (
-        <img
-          src={info.uri}
-          style={{ width: '100%', height: 200, borderRadius: 8, objectFit: 'cover' }}
-        /> as any
-      );
-    return <Image source={{ uri: info.uri }} style={styles.thumb} />;
+  // Some Android URIs are content:// — copy to a local cache file so uploadAsync can stream it
+  async function ensureFileUriNative(uri: string): Promise<string> {
+    if (!uri) throw new Error('Invalid URI');
+    if (uri.startsWith('file://')) return uri;
+
+    const tmp = `${FileSystem.cacheDirectory}up_${Date.now()}.jpg`;
+    await FileSystem.copyAsync({ from: uri, to: tmp } as any);
+    return tmp;
   }
 
-  // ---------- OneDrive direct upload flow ----------
+  // Native: stream the whole file in a single PUT to the upload session
+async function uploadNativeWhole(
+  uploadUrl: string,
+  fileUri: string,
+  onProgress?: (p: number) => void
+) {
+  // Ensure we have a file:// path (content:// copied to cache)
+  const localUri = await ensureFileUriNative(fileUri);
 
-  // Read file bytes → Uint8Array, native-safe
-  async function readFileBytes(uri: string): Promise<Uint8Array> {
-    if (!uri) throw new Error('Invalid URI');
+  const info = await FileSystem.getInfoAsync(localUri);
+  const size = (info as any).size as number;
+  if (!size || size <= 0) throw new Error('Could not determine file size');
 
-    // Native (file:// or content://): use legacy FS base64 read and our pure JS decoder
-    if (Platform.OS !== 'web') {
-      const b64 = await FileSystem.readAsStringAsync(uri, {
-        encoding: FileSystem.EncodingType.Base64,
+  const headers: Record<string, string> = {
+    'Content-Range': `bytes 0-${size - 1}/${size}`,
+    'Content-Type': 'application/octet-stream',
+  };
+
+  if (onProgress) onProgress(0);
+
+  // ⚠️ Do NOT read FileSystem.FileSystemUploadType from the enum (it may be undefined in release).
+  // Binary upload type is 0 — use it directly as a safe fallback.
+  const BINARY_UPLOAD_TYPE = 0;
+
+  const res = await FileSystem.uploadAsync(uploadUrl, localUri, {
+    httpMethod: 'PUT',
+    uploadType: BINARY_UPLOAD_TYPE,
+    headers,
+    contentType: 'application/octet-stream',
+  } as any);
+
+  if (!(res.status >= 200 && res.status < 300) && res.status !== 202) {
+    throw new Error(`Upload failed (${res.status}) ${res.body || ''}`);
+  }
+
+  if (onProgress) onProgress(100);
+}
+
+  // Web: chunked upload with fetch
+  async function putWithRetryWeb(url: string, slice: Uint8Array, contentRange: string, tries = 3) {
+    let attempt = 0;
+    while (attempt < tries) {
+      attempt++;
+      const res = await fetch(url, {
+        method: 'PUT',
+        headers: {
+          'Content-Range': contentRange,
+          'Content-Length': String(slice.length),
+        },
+        // Some TypeScript lib defs don't include Uint8Array as BodyInit; cast to any to satisfy the compiler.
+        body: slice as any,
       });
-      return base64ToBytes(b64);
+      if (res.ok || res.status === 201 || res.status === 202) return;
+      if (attempt >= tries) {
+        const txt = await res.text().catch(() => '');
+        throw new Error(`Chunk upload failed (${res.status}) ${txt}`.trim());
+      }
+      await new Promise((r) => setTimeout(r, 800 * attempt));
     }
+  }
 
-    // Web: fetch blob and arrayBuffer
+  async function uploadWebInChunks(uploadUrl: string, bytes: Uint8Array, chunkSize = 5 * 1024 * 1024, onProgress?: (pct: number) => void) {
+    const total = bytes.length;
+    let start = 0;
+    if (onProgress) onProgress(0);
+    while (start < total) {
+      const end = Math.min(start + chunkSize, total);
+      const slice = bytes.subarray(start, end);
+      const cr = `bytes ${start}-${end - 1}/${total}`;
+      await putWithRetryWeb(uploadUrl, slice, cr, 3);
+      start = end;
+      if (onProgress) onProgress(Math.min(100, Math.floor((start / total) * 100)));
+    }
+  }
+
+  // Web only: read file as bytes
+  async function readFileBytesWeb(uri: string): Promise<Uint8Array> {
     const resp = await fetch(uri);
     const blob = await resp.blob();
     const ab = await blob.arrayBuffer();
     return new Uint8Array(ab);
   }
 
-  // -- replace this entire helper in app/complete.tsx --
-
-async function putWithRetry(
-  url: string,
-  slice: Uint8Array,
-  contentRange: string,
-  tries = 3
-) {
-  // Build headers safely for each platform
-  const headers: Record<string, string> = {
-    'Content-Range': contentRange,
-    // OneDrive chunk endpoint is fine without Content-Type for binary
-    // 'Content-Type': 'application/octet-stream', // optional
-  };
-
-  // Only browsers allow/need manual Content-Length.
-  // On native, setting it can break the request.
-  if (Platform.OS === 'web') {
-    headers['Content-Length'] = String(slice.length);
-  }
-
-  // Build a native-safe body
-  let body: any = slice as any;
-  if (Platform.OS !== 'web') {
-    // Convert Uint8Array -> ArrayBuffer slice -> Blob
-    const ab = slice.buffer.slice(
-      slice.byteOffset,
-      slice.byteOffset + slice.byteLength
-    );
-    body = new Blob([ab]); // RN supports Blob as request body
-  }
-
-  let attempt = 0;
-  while (attempt < tries) {
-    attempt++;
-    try {
-      const res = await fetch(url, {
-        method: 'PUT',
-        headers,
-        body,
-      });
-
-      if (res.ok || res.status === 201 || res.status === 202) return;
-
-      // Non-OK: read text once for diagnostics (don’t loop reading)
-      const txt = await res.text().catch(() => '');
-      if (attempt >= tries) {
-        throw new Error(`Chunk upload failed (${res.status}) ${txt}`.trim());
-      }
-    } catch (err) {
-      // Native often throws "Network request failed" here when headers/body are wrong
-      if (attempt >= tries) throw err;
-    }
-
-    // small backoff
-    await new Promise((r) => setTimeout(r, 800 * attempt));
-  }
-}
-
-
-  async function uploadInChunks(
-    uploadUrl: string,
-    bytes: Uint8Array,
-    chunkSize = 5 * 1024 * 1024,
-    onProgress?: (pct: number) => void
-  ) {
-    const total = bytes.length;
-    let start = 0;
-    if (onProgress) onProgress(0);
-
-    while (start < total) {
-      const end = Math.min(start + chunkSize, total);
-      const slice = bytes.subarray(start, end);
-      const contentRange = `bytes ${start}-${end - 1}/${total}`;
-      await putWithRetry(uploadUrl, slice, contentRange, 3);
-      start = end;
-      if (onProgress) {
-        const pct = Math.min(100, Math.floor((start / total) * 100));
-        onProgress(pct);
-      }
-    }
-  }
-
-  // Step 1: upload (must succeed before completion)
+  /* ---------- upload flow ---------- */
   async function onUploadImages() {
     const podInfo = getImageData(podPhoto);
     const invInfo = getImageData(invoicePhoto);
@@ -478,7 +390,7 @@ async function putWithRetry(
     if (invInfo?.uri) setInvoiceProgress(0);
 
     try {
-      // Ask backend to create sessions and return uploadUrls & itemPaths
+      // 1) create upload sessions
       const body = {
         assignedTaskId: Number(
           mergedParams.assignedTaskId ??
@@ -505,10 +417,7 @@ async function putWithRetry(
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
       });
-      if (!createRes.ok) {
-        const t = await createRes.text();
-        throw new Error(t || 'Failed to create upload sessions');
-      }
+      if (!createRes.ok) throw new Error((await createRes.text()) || 'Failed to create upload sessions');
       const createJson: any = await createRes.json();
 
       const serverChunkHint: number | undefined = createJson?.chunkHintBytes;
@@ -517,23 +426,28 @@ async function putWithRetry(
           ? serverChunkHint
           : 5 * 1024 * 1024;
 
-      // Upload POD (required)
+      // 2) upload POD
       if (!createJson?.pod?.uploadUrl || !createJson?.pod?.itemPath) {
         throw new Error('Missing POD upload session data from server');
       }
-      const podBytes = await readFileBytes(podInfo.uri!);
-      await uploadInChunks(createJson.pod.uploadUrl, podBytes, chunkSize, (p) =>
-        setPodProgress(p)
-      );
+
+      if (Platform.OS === 'web') {
+        const podBytes = await readFileBytesWeb(podInfo.uri!);
+        await uploadWebInChunks(createJson.pod.uploadUrl, podBytes, chunkSize, setPodProgress);
+      } else {
+        await uploadNativeWhole(createJson.pod.uploadUrl, podInfo.uri!, setPodProgress);
+      }
       setPodItemPath(createJson.pod.itemPath);
       setPodServerFileName(createJson.pod.fileName || null);
 
-      // Upload Invoice if available
+      // 3) upload Invoice if present
       if (invInfo?.uri && createJson?.invoice?.uploadUrl && createJson?.invoice?.itemPath) {
-        const invBytes = await readFileBytes(invInfo.uri);
-        await uploadInChunks(createJson.invoice.uploadUrl, invBytes, chunkSize, (p) =>
-          setInvoiceProgress(p)
-        );
+        if (Platform.OS === 'web') {
+          const invBytes = await readFileBytesWeb(invInfo.uri!);
+          await uploadWebInChunks(createJson.invoice.uploadUrl, invBytes, chunkSize, setInvoiceProgress);
+        } else {
+          await uploadNativeWhole(createJson.invoice.uploadUrl, invInfo.uri!, setInvoiceProgress);
+        }
         setInvoiceItemPath(createJson.invoice.itemPath);
         setInvoiceServerFileName(createJson.invoice.fileName || null);
       } else if (!invInfo?.uri) {
@@ -544,7 +458,6 @@ async function putWithRetry(
 
       setPodProgress(100);
       if (invInfo?.uri) setInvoiceProgress(100);
-
       Alert.alert('Uploaded', 'Images uploaded to OneDrive successfully.');
     } catch (e: any) {
       console.error('Upload error', e);
@@ -560,7 +473,6 @@ async function putWithRetry(
     }
   }
 
-  // Step 2: finalize (DB + background PDF)
   async function onCompleteTask() {
     const podUploaded = !!podItemPath;
     const invoiceOk = !!invoiceItemPath || !!missingInvoiceReason;
@@ -611,11 +523,7 @@ async function putWithRetry(
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
       });
-
-      if (!res.ok) {
-        const t = await res.text();
-        throw new Error(t || 'Finalize failed');
-      }
+      if (!res.ok) throw new Error((await res.text()) || 'Finalize failed');
 
       Alert.alert('Success', 'Task completed successfully');
 
@@ -633,17 +541,15 @@ async function putWithRetry(
 
       router.push('/tasks');
     } catch (e: any) {
-      console.warn('Finalize error', e);
       Alert.alert('Error', e?.message || 'Task submission failed.');
     } finally {
       setProcessing(false);
     }
   }
 
-  // computed UI state
+  /* ---------- UI ---------- */
   const podInfo = getImageData(podPhoto);
   const invoiceInfo = getImageData(invoicePhoto);
-
   const invoiceSatisfied = !!invoiceInfo?.uri || !!missingInvoiceReason;
 
   const uploadDisabled =
@@ -656,12 +562,9 @@ async function putWithRetry(
     !invoiceSatisfied ||
     (missingInvoiceReason === 'Other' && otherReasonText.trim().length === 0);
 
-  // progress bar
   const Progress = ({ pct }: { pct: number }) => (
     <View style={styles.progressOuter}>
-      <View
-        style={[styles.progressInner, { width: `${Math.max(0, Math.min(100, pct))}%` }]}
-      />
+      <View style={[styles.progressInner, { width: `${Math.max(0, Math.min(100, pct))}%` }]} />
     </View>
   );
 
@@ -698,10 +601,7 @@ async function putWithRetry(
             value={saveToGallery}
             onValueChange={async (v) => {
               setSaveToGallery(v);
-              if (v && !galleryGranted) {
-                // proactively ask once when toggled on
-                await ensureGalleryPermissionIfNeeded('save');
-              }
+              if (v && !galleryGranted) await ensureGalleryPermissionIfNeeded('save');
             }}
           />
         </View>
@@ -710,11 +610,20 @@ async function putWithRetry(
         <View style={{ marginTop: 8 }}>
           <View style={styles.card}>
             <Text style={styles.cardTitle}>POD Photo</Text>
-            {renderThumb(podPhoto, 'POD Photo')}
+            {podInfo?.uri ? (
+              Platform.OS === 'web' ? (
+                <img src={podInfo.uri} style={{ width: '100%', height: 200, borderRadius: 8, objectFit: 'cover' }} />
+              ) : (
+                <Image source={{ uri: podInfo.uri }} style={styles.thumb} />
+              )
+            ) : (
+              <Text style={styles.placeholder}>POD Photo (not taken)</Text>
+            )}
+
             <View style={{ flexDirection: 'row', gap: 8, marginTop: 8 }}>
               <Pressable
                 style={[styles.photoBtn, { backgroundColor: podInfo ? '#28a745' : '#1b7ed6' }]}
-                onPress={() => guarded(() => takePhoto(setPodPhoto, 'POD Photo'), 'pod')}
+                onPress={() => guarded(() => takePhoto(setPodPhoto), 'pod')}
               >
                 <Text style={styles.photoBtnText}>{podInfo ? 'Retake POD' : 'Take POD'}</Text>
               </Pressable>
@@ -728,9 +637,7 @@ async function putWithRetry(
 
             {typeof podProgress === 'number' ? (
               <View style={{ marginTop: 8 }}>
-                <Text style={{ color: '#333', marginBottom: 4 }}>
-                  Uploading POD: {podProgress}%
-                </Text>
+                <Text style={{ color: '#333', marginBottom: 4 }}>Uploading POD: {podProgress}%</Text>
                 <Progress pct={podProgress} />
               </View>
             ) : null}
@@ -745,15 +652,22 @@ async function putWithRetry(
           {/* Invoice */}
           <View style={styles.card}>
             <Text style={styles.cardTitle}>Invoice Photo (optional)</Text>
-            {renderThumb(invoicePhoto, 'Invoice Photo')}
+            {invoiceInfo?.uri ? (
+              Platform.OS === 'web' ? (
+                <img src={invoiceInfo.uri} style={{ width: '100%', height: 200, borderRadius: 8, objectFit: 'cover' }} />
+              ) : (
+                <Image source={{ uri: invoiceInfo.uri }} style={styles.thumb} />
+              )
+            ) : (
+              <Text style={styles.placeholder}>Invoice Photo (not taken)</Text>
+            )}
+
             <View style={{ flexDirection: 'row', gap: 8, marginTop: 8 }}>
               <Pressable
                 style={[styles.photoBtn, { backgroundColor: '#6f42c1' }]}
                 onPress={() => guarded(scanInvoicePhoto, 'inv')}
               >
-                <Text style={styles.photoBtnText}>
-                  {invoiceInfo ? 'Rescan Invoice' : 'Scan Invoice'}
-                </Text>
+                <Text style={styles.photoBtnText}>{invoiceInfo ? 'Rescan Invoice' : 'Scan Invoice'}</Text>
               </Pressable>
               <Pressable
                 style={[styles.photoBtn, { backgroundColor: '#6c757d' }]}
@@ -765,9 +679,7 @@ async function putWithRetry(
 
             {typeof invoiceProgress === 'number' ? (
               <View style={{ marginTop: 8 }}>
-                <Text style={{ color: '#333', marginBottom: 4 }}>
-                  Uploading Invoice: {invoiceProgress}%
-                </Text>
+                <Text style={{ color: '#333', marginBottom: 4 }}>Uploading Invoice: {invoiceProgress}%</Text>
                 <Progress pct={invoiceProgress} />
               </View>
             ) : null}
@@ -782,19 +694,9 @@ async function putWithRetry(
 
         {/* Reason */}
         <View style={{ marginTop: 18 }}>
-          <View
-            style={{
-              flexDirection: 'row',
-              alignItems: 'center',
-              justifyContent: 'space-between',
-              marginBottom: 12,
-            }}
-          >
+          <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
             <Text style={{ fontWeight: '600' }}>Require reason even if invoice present</Text>
-            <Switch
-              value={requireReasonEvenIfInvoicePresent}
-              onValueChange={setRequireReasonEvenIfInvoicePresent}
-            />
+            <Switch value={requireReasonEvenIfInvoicePresent} onValueChange={setRequireReasonEvenIfInvoicePresent} />
           </View>
 
           {!invoiceInfo || requireReasonEvenIfInvoicePresent ? (
@@ -823,10 +725,7 @@ async function putWithRetry(
                           if (r === 'Other') setOtherReasonText('');
                           setShowReasonOptions(false);
                         }}
-                        style={[
-                          styles.pill,
-                          { backgroundColor: selected ? '#1b7ed6' : '#eef2f7' },
-                        ]}
+                        style={[styles.pill, { backgroundColor: selected ? '#1b7ed6' : '#eef2f7' }]}
                       >
                         <Text style={{ color: selected ? '#fff' : '#223' }}>{r}</Text>
                       </Pressable>
@@ -887,69 +786,22 @@ async function putWithRetry(
   );
 }
 
+/* ---------- styles ---------- */
 const styles = StyleSheet.create({
   container: { flex: 1, padding: 18, paddingTop: 5, backgroundColor: '#fff' },
-  thumb: {
-    width: '100%',
-    height: 200,
-    borderRadius: 8,
-    resizeMode: 'cover',
-    backgroundColor: '#eee',
-  },
+  thumb: { width: '100%', height: 200, borderRadius: 8, resizeMode: 'cover', backgroundColor: '#eee' },
   placeholder: { color: '#666', padding: 12, textAlign: 'center' },
-  photoBtn: {
-    backgroundColor: '#1b7ed6',
-    paddingVertical: 10,
-    paddingHorizontal: 12,
-    borderRadius: 8,
-  },
+  photoBtn: { backgroundColor: '#1b7ed6', paddingVertical: 10, paddingHorizontal: 12, borderRadius: 8 },
   photoBtnText: { color: '#fff', fontWeight: '600' },
-  card: {
-    backgroundColor: '#fafafa',
-    padding: 12,
-    borderRadius: 10,
-    marginBottom: 12,
-    shadowColor: '#000',
-    shadowOpacity: 0.05,
-    shadowRadius: 6,
-    elevation: 2,
-  },
+  card: { backgroundColor: '#fafafa', padding: 12, borderRadius: 10, marginBottom: 12, shadowColor: '#000', shadowOpacity: 0.05, shadowRadius: 6, elevation: 2 },
   cardTitle: { fontSize: 14, fontWeight: '700', marginBottom: 8, color: '#222' },
-  contextChip: {
-    backgroundColor: '#eef6ff',
-    borderRadius: 10,
-    padding: 12,
-    marginBottom: 8,
-  },
+  contextChip: { backgroundColor: '#eef6ff', borderRadius: 10, padding: 12, marginBottom: 8 },
   contextTitle: { fontWeight: '700', marginBottom: 6, color: '#123' },
-  pillInfo: {
-    backgroundColor: '#dfefff',
-    paddingVertical: 6,
-    paddingHorizontal: 10,
-    borderRadius: 14,
-  },
+  pillInfo: { backgroundColor: '#dfefff', paddingVertical: 6, paddingHorizontal: 10, borderRadius: 14 },
   pillInfoText: { color: '#123' },
-  dropdown: {
-    borderWidth: 1,
-    borderColor: '#ddd',
-    padding: 10,
-    borderRadius: 8,
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-  },
+  dropdown: { borderWidth: 1, borderColor: '#ddd', padding: 10, borderRadius: 8, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
   pillWrap: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 8 },
   pill: { paddingVertical: 8, paddingHorizontal: 12, borderRadius: 16 },
-  progressOuter: {
-    height: 8,
-    width: '100%',
-    borderRadius: 6,
-    backgroundColor: '#e9edf5',
-    overflow: 'hidden',
-  },
-  progressInner: {
-    height: 8,
-    borderRadius: 6,
-    backgroundColor: '#1b7ed6',
-  },
+  progressOuter: { height: 8, width: '100%', borderRadius: 6, backgroundColor: '#e9edf5', overflow: 'hidden' },
+  progressInner: { height: 8, borderRadius: 6, backgroundColor: '#1b7ed6' },
 });
