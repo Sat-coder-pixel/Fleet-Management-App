@@ -4,6 +4,7 @@ import {
   ActivityIndicator,
   Alert,
   Button,
+  Pressable,
   StyleSheet,
   Text,
   TextInput,
@@ -15,6 +16,10 @@ import { ThemedText } from '@/components/themed-text';
 import { API_BASE } from '@/services/api';
 import storage from '@/storage/store';
 
+// NEW: permissions
+import * as ImagePicker from 'expo-image-picker';
+import * as MediaLibrary from 'expo-media-library';
+
 // Hide the navigation header for this landing screen so there's no back button.
 export const options = { headerShown: false };
 
@@ -22,10 +27,12 @@ export default function LoginScreen() {
   const router = useRouter();
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false); // NEW
   const [loading, setLoading] = useState(false);
   const [checking, setChecking] = useState(true);
   const pressedRef = useRef(false); // guard against double-tap
 
+  // existing auto-login check
   useEffect(() => {
     let mounted = true;
     (async () => {
@@ -42,7 +49,30 @@ export default function LoginScreen() {
         if (mounted) setChecking(false);
       }
     })();
-    return () => { mounted = false; };
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
+  // NEW: proactively ask for camera + gallery permission once at login
+  useEffect(() => {
+    (async () => {
+      try {
+        // camera permission
+        const cam = await ImagePicker.getCameraPermissionsAsync();
+        if (cam.status !== 'granted') {
+          await ImagePicker.requestCameraPermissionsAsync();
+        }
+
+        // photo library / gallery permission
+        const lib = await MediaLibrary.getPermissionsAsync();
+        if (lib.status !== 'granted' && lib.canAskAgain) {
+          await MediaLibrary.requestPermissionsAsync();
+        }
+      } catch (e) {
+        console.warn('Failed to pre-request permissions', e);
+      }
+    })();
   }, []);
 
   async function onLogin() {
@@ -122,15 +152,25 @@ export default function LoginScreen() {
         />
 
         <Text style={[styles.label, { marginTop: 12 }]}>Password</Text>
-        <TextInput
-          value={password}
-          onChangeText={setPassword}
-          placeholder="password"
-          secureTextEntry
-          style={styles.input}
-          returnKeyType="done"
-          onSubmitEditing={onLogin}
-        />
+        <View style={styles.passwordContainer}>
+          <TextInput
+            value={password}
+            onChangeText={setPassword}
+            placeholder="password"
+            secureTextEntry={!showPassword}
+            style={[styles.input, { paddingRight: 60 }]}
+            returnKeyType="done"
+            onSubmitEditing={onLogin}
+          />
+          <Pressable
+            onPress={() => setShowPassword((s) => !s)}
+            style={styles.eyeButton}
+          >
+            <Text style={{ color: '#555', fontWeight: '600' }}>
+              {showPassword ? 'Hide' : 'Show'}
+            </Text>
+          </Pressable>
+        </View>
       </View>
 
       <View style={{ marginTop: 22 }}>
@@ -150,5 +190,16 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     borderWidth: 1,
     borderColor: '#e6eef8',
+  },
+  // NEW
+  passwordContainer: {
+    position: 'relative',
+    justifyContent: 'center',
+  },
+  eyeButton: {
+    position: 'absolute',
+    right: 12,
+    paddingHorizontal: 4,
+    paddingVertical: 8,
   },
 });

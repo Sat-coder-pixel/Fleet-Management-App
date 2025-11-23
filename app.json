@@ -12,7 +12,10 @@
       "supportsTablet": true,
       "bundleIdentifier": "com.shailen131.FleetManage",
       "infoPlist": {
-        "ITSAppUsesNonExemptEncryption": false
+        "ITSAppUsesNonExemptEncryption": false,
+    "NSCameraUsageDescription": "Allow MMM Logistics to capture POD and invoice photos.",
+    "NSPhotoLibraryUsageDescription": "Allow MMM Logistics to select POD and invoice photos from your photo library.",
+    "NSPhotoLibraryAddUsageDescription": "Allow MMM Logistics to save POD and invoice photos to your photo library."
       }
     },
     "android": {

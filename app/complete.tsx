@@ -79,7 +79,7 @@ export default function CompleteTaskPlaceholder() {
   const [processing, setProcessing] = useState(false);
   const [uploading, setUploading] = useState(false);
 
-  // only ask for gallery when needed
+  // gallery / camera permissions
   const [saveToGallery, setSaveToGallery] = useState(true);
   const [cameraGranted, setCameraGranted] = useState<boolean>(false);
   const [galleryGranted, setGalleryGranted] = useState<boolean>(false);
@@ -91,7 +91,9 @@ export default function CompleteTaskPlaceholder() {
         setCameraGranted(cam.status === 'granted');
         const lib = await MediaLibrary.getPermissionsAsync();
         setGalleryGranted(lib.status === 'granted');
-      } catch {}
+      } catch {
+        // ignore
+      }
     })();
   }, []);
 
@@ -136,25 +138,32 @@ export default function CompleteTaskPlaceholder() {
 
   async function ensureGalleryPermissionIfNeeded(reason: 'pick' | 'save') {
     if (galleryGranted) return true;
+
     const current = await MediaLibrary.getPermissionsAsync();
     if (current.status === 'granted') {
       setGalleryGranted(true);
       return true;
     }
+
     if (!current.canAskAgain) {
       Alert.alert(
         'Gallery access needed',
-        `Enable photo library access in device Settings to ${reason === 'pick' ? 'pick an image' : 'save photos to gallery'}.`
+        `Enable photo library access in device Settings to ${
+          reason === 'pick' ? 'pick an image' : 'save photos to gallery'
+        }.`
       );
       return false;
     }
+
     const req = await MediaLibrary.requestPermissionsAsync();
     const ok = req.status === 'granted';
     setGalleryGranted(ok);
     if (!ok) {
       Alert.alert(
         'Gallery access required',
-        `We need photo library access to ${reason === 'pick' ? 'select an image' : 'save photos'}.`
+        `We need photo library access to ${
+          reason === 'pick' ? 'select an image' : 'save photos'
+        }.`
       );
     }
     return ok;
@@ -287,45 +296,50 @@ export default function CompleteTaskPlaceholder() {
   }
 
   // Native: stream the whole file in a single PUT to the upload session
-async function uploadNativeWhole(
-  uploadUrl: string,
-  fileUri: string,
-  onProgress?: (p: number) => void
-) {
-  // Ensure we have a file:// path (content:// copied to cache)
-  const localUri = await ensureFileUriNative(fileUri);
+  async function uploadNativeWhole(
+    uploadUrl: string,
+    fileUri: string,
+    onProgress?: (p: number) => void
+  ) {
+    // Ensure we have a file:// path (content:// copied to cache)
+    const localUri = await ensureFileUriNative(fileUri);
 
-  const info = await FileSystem.getInfoAsync(localUri);
-  const size = (info as any).size as number;
-  if (!size || size <= 0) throw new Error('Could not determine file size');
+    const info = await FileSystem.getInfoAsync(localUri);
+    const size = (info as any).size as number;
+    if (!size || size <= 0) throw new Error('Could not determine file size');
 
-  const headers: Record<string, string> = {
-    'Content-Range': `bytes 0-${size - 1}/${size}`,
-    'Content-Type': 'application/octet-stream',
-  };
+    const headers: Record<string, string> = {
+      'Content-Range': `bytes 0-${size - 1}/${size}`,
+      'Content-Type': 'application/octet-stream',
+    };
 
-  if (onProgress) onProgress(0);
+    if (onProgress) onProgress(0);
 
-  // ⚠️ Do NOT read FileSystem.FileSystemUploadType from the enum (it may be undefined in release).
-  // Binary upload type is 0 — use it directly as a safe fallback.
-  const BINARY_UPLOAD_TYPE = 0;
+    // ⚠️ Do NOT read FileSystem.FileSystemUploadType from the enum (it may be undefined in release).
+    // Binary upload type is 0 — use it directly as a safe fallback.
+    const BINARY_UPLOAD_TYPE = 0;
 
-  const res = await FileSystem.uploadAsync(uploadUrl, localUri, {
-    httpMethod: 'PUT',
-    uploadType: BINARY_UPLOAD_TYPE,
-    headers,
-    contentType: 'application/octet-stream',
-  } as any);
+    const res = await FileSystem.uploadAsync(uploadUrl, localUri, {
+      httpMethod: 'PUT',
+      uploadType: BINARY_UPLOAD_TYPE,
+      headers,
+      contentType: 'application/octet-stream',
+    } as any);
 
-  if (!(res.status >= 200 && res.status < 300) && res.status !== 202) {
-    throw new Error(`Upload failed (${res.status}) ${res.body || ''}`);
+    if (!(res.status >= 200 && res.status < 300) && res.status !== 202) {
+      throw new Error(`Upload failed (${res.status}) ${res.body || ''}`);
+    }
+
+    if (onProgress) onProgress(100);
   }
 
-  if (onProgress) onProgress(100);
-}
-
   // Web: chunked upload with fetch
-  async function putWithRetryWeb(url: string, slice: Uint8Array, contentRange: string, tries = 3) {
+  async function putWithRetryWeb(
+    url: string,
+    slice: Uint8Array,
+    contentRange: string,
+    tries = 3
+  ) {
     let attempt = 0;
     while (attempt < tries) {
       attempt++;
@@ -347,7 +361,12 @@ async function uploadNativeWhole(
     }
   }
 
-  async function uploadWebInChunks(uploadUrl: string, bytes: Uint8Array, chunkSize = 5 * 1024 * 1024, onProgress?: (pct: number) => void) {
+  async function uploadWebInChunks(
+    uploadUrl: string,
+    bytes: Uint8Array,
+    chunkSize = 5 * 1024 * 1024,
+    onProgress?: (pct: number) => void
+  ) {
     const total = bytes.length;
     let start = 0;
     if (onProgress) onProgress(0);
@@ -417,7 +436,8 @@ async function uploadNativeWhole(
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
       });
-      if (!createRes.ok) throw new Error((await createRes.text()) || 'Failed to create upload sessions');
+      if (!createRes.ok)
+        throw new Error((await createRes.text()) || 'Failed to create upload sessions');
       const createJson: any = await createRes.json();
 
       const serverChunkHint: number | undefined = createJson?.chunkHintBytes;
@@ -444,7 +464,12 @@ async function uploadNativeWhole(
       if (invInfo?.uri && createJson?.invoice?.uploadUrl && createJson?.invoice?.itemPath) {
         if (Platform.OS === 'web') {
           const invBytes = await readFileBytesWeb(invInfo.uri!);
-          await uploadWebInChunks(createJson.invoice.uploadUrl, invBytes, chunkSize, setInvoiceProgress);
+          await uploadWebInChunks(
+            createJson.invoice.uploadUrl,
+            invBytes,
+            chunkSize,
+            setInvoiceProgress
+          );
         } else {
           await uploadNativeWhole(createJson.invoice.uploadUrl, invInfo.uri!, setInvoiceProgress);
         }
@@ -537,7 +562,9 @@ async function uploadNativeWhole(
           const storage = (await import('@/storage/store')).default;
           await storage.saveTasksForTruck(truckNo, []);
         }
-      } catch {}
+      } catch {
+        // ignore cache errors
+      }
 
       router.push('/tasks');
     } catch (e: any) {
@@ -591,12 +618,15 @@ async function uploadNativeWhole(
           </View>
         </View>
 
-        <ThemedText style={{ marginTop: 8, marginBottom: 12, fontSize: 16, fontWeight: '600' }}>
+        <ThemedText
+          style={{ marginTop: 8, marginBottom: 12, fontSize: 16, fontWeight: '600' }}
+        >
           Take or Upload POD and Invoice photos.
         </ThemedText>
 
-        <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 10 }}>
-          <Text style={{ fontWeight: '600', marginRight: 8 }}>Save photos to gallery</Text>
+        {/* Save-to-gallery toggle */}
+        <View style={styles.toggleRow}>
+          <Text style={styles.toggleLabel}>Save photos to gallery</Text>
           <Switch
             value={saveToGallery}
             onValueChange={async (v) => {
@@ -612,7 +642,15 @@ async function uploadNativeWhole(
             <Text style={styles.cardTitle}>POD Photo</Text>
             {podInfo?.uri ? (
               Platform.OS === 'web' ? (
-                <img src={podInfo.uri} style={{ width: '100%', height: 200, borderRadius: 8, objectFit: 'cover' }} />
+                <img
+                  src={podInfo.uri}
+                  style={{
+                    width: '100%',
+                    height: 200,
+                    borderRadius: 8,
+                    objectFit: 'cover',
+                  }}
+                />
               ) : (
                 <Image source={{ uri: podInfo.uri }} style={styles.thumb} />
               )
@@ -622,10 +660,15 @@ async function uploadNativeWhole(
 
             <View style={{ flexDirection: 'row', gap: 8, marginTop: 8 }}>
               <Pressable
-                style={[styles.photoBtn, { backgroundColor: podInfo ? '#28a745' : '#1b7ed6' }]}
+                style={[
+                  styles.photoBtn,
+                  { backgroundColor: podInfo ? '#28a745' : '#1b7ed6' },
+                ]}
                 onPress={() => guarded(() => takePhoto(setPodPhoto), 'pod')}
               >
-                <Text style={styles.photoBtnText}>{podInfo ? 'Retake POD' : 'Take POD'}</Text>
+                <Text style={styles.photoBtnText}>
+                  {podInfo ? 'Retake POD' : 'Take POD'}
+                </Text>
               </Pressable>
               <Pressable
                 style={[styles.photoBtn, { backgroundColor: '#6c757d' }]}
@@ -637,7 +680,9 @@ async function uploadNativeWhole(
 
             {typeof podProgress === 'number' ? (
               <View style={{ marginTop: 8 }}>
-                <Text style={{ color: '#333', marginBottom: 4 }}>Uploading POD: {podProgress}%</Text>
+                <Text style={{ color: '#333', marginBottom: 4 }}>
+                  Uploading POD: {podProgress}%
+                </Text>
                 <Progress pct={podProgress} />
               </View>
             ) : null}
@@ -654,7 +699,15 @@ async function uploadNativeWhole(
             <Text style={styles.cardTitle}>Invoice Photo (optional)</Text>
             {invoiceInfo?.uri ? (
               Platform.OS === 'web' ? (
-                <img src={invoiceInfo.uri} style={{ width: '100%', height: 200, borderRadius: 8, objectFit: 'cover' }} />
+                <img
+                  src={invoiceInfo.uri}
+                  style={{
+                    width: '100%',
+                    height: 200,
+                    borderRadius: 8,
+                    objectFit: 'cover',
+                  }}
+                />
               ) : (
                 <Image source={{ uri: invoiceInfo.uri }} style={styles.thumb} />
               )
@@ -667,7 +720,9 @@ async function uploadNativeWhole(
                 style={[styles.photoBtn, { backgroundColor: '#6f42c1' }]}
                 onPress={() => guarded(scanInvoicePhoto, 'inv')}
               >
-                <Text style={styles.photoBtnText}>{invoiceInfo ? 'Rescan Invoice' : 'Scan Invoice'}</Text>
+                <Text style={styles.photoBtnText}>
+                  {invoiceInfo ? 'Rescan Invoice' : 'Scan Invoice'}
+                </Text>
               </Pressable>
               <Pressable
                 style={[styles.photoBtn, { backgroundColor: '#6c757d' }]}
@@ -679,7 +734,9 @@ async function uploadNativeWhole(
 
             {typeof invoiceProgress === 'number' ? (
               <View style={{ marginTop: 8 }}>
-                <Text style={{ color: '#333', marginBottom: 4 }}>Uploading Invoice: {invoiceProgress}%</Text>
+                <Text style={{ color: '#333', marginBottom: 4 }}>
+                  Uploading Invoice: {invoiceProgress}%
+                </Text>
                 <Progress pct={invoiceProgress} />
               </View>
             ) : null}
@@ -694,15 +751,24 @@ async function uploadNativeWhole(
 
         {/* Reason */}
         <View style={{ marginTop: 18 }}>
-          <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
-            <Text style={{ fontWeight: '600' }}>Require reason even if invoice present</Text>
-            <Switch value={requireReasonEvenIfInvoicePresent} onValueChange={setRequireReasonEvenIfInvoicePresent} />
+          {/* Require reason toggle */}
+          <View style={styles.toggleRow}>
+            <Text style={styles.toggleLabel}>
+              Require reason even if invoice present
+            </Text>
+            <Switch
+              value={requireReasonEvenIfInvoicePresent}
+              onValueChange={setRequireReasonEvenIfInvoicePresent}
+            />
           </View>
 
           {!invoiceInfo || requireReasonEvenIfInvoicePresent ? (
             <View style={{ marginBottom: 12 }}>
               <Text style={{ fontWeight: '600', marginBottom: 6 }}>Reason (optional)</Text>
-              <Pressable onPress={() => setShowReasonOptions((s) => !s)} style={styles.dropdown}>
+              <Pressable
+                onPress={() => setShowReasonOptions((s) => !s)}
+                style={styles.dropdown}
+              >
                 <Text style={{ color: missingInvoiceReason ? '#111' : '#888' }}>
                   {missingInvoiceReason
                     ? missingInvoiceReason === 'Other'
@@ -725,7 +791,10 @@ async function uploadNativeWhole(
                           if (r === 'Other') setOtherReasonText('');
                           setShowReasonOptions(false);
                         }}
-                        style={[styles.pill, { backgroundColor: selected ? '#1b7ed6' : '#eef2f7' }]}
+                        style={[
+                          styles.pill,
+                          { backgroundColor: selected ? '#1b7ed6' : '#eef2f7' },
+                        ]}
                       >
                         <Text style={{ color: selected ? '#fff' : '#223' }}>{r}</Text>
                       </Pressable>
@@ -789,19 +858,76 @@ async function uploadNativeWhole(
 /* ---------- styles ---------- */
 const styles = StyleSheet.create({
   container: { flex: 1, padding: 18, paddingTop: 5, backgroundColor: '#fff' },
-  thumb: { width: '100%', height: 200, borderRadius: 8, resizeMode: 'cover', backgroundColor: '#eee' },
+  thumb: {
+    width: '100%',
+    height: 200,
+    borderRadius: 8,
+    resizeMode: 'cover',
+    backgroundColor: '#eee',
+  },
   placeholder: { color: '#666', padding: 12, textAlign: 'center' },
-  photoBtn: { backgroundColor: '#1b7ed6', paddingVertical: 10, paddingHorizontal: 12, borderRadius: 8 },
+  photoBtn: {
+    backgroundColor: '#1b7ed6',
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    borderRadius: 8,
+  },
   photoBtnText: { color: '#fff', fontWeight: '600' },
-  card: { backgroundColor: '#fafafa', padding: 12, borderRadius: 10, marginBottom: 12, shadowColor: '#000', shadowOpacity: 0.05, shadowRadius: 6, elevation: 2 },
+  card: {
+    backgroundColor: '#fafafa',
+    padding: 12,
+    borderRadius: 10,
+    marginBottom: 12,
+    shadowColor: '#000',
+    shadowOpacity: 0.05,
+    shadowRadius: 6,
+    elevation: 2,
+  },
   cardTitle: { fontSize: 14, fontWeight: '700', marginBottom: 8, color: '#222' },
-  contextChip: { backgroundColor: '#eef6ff', borderRadius: 10, padding: 12, marginBottom: 8 },
+  contextChip: {
+    backgroundColor: '#eef6ff',
+    borderRadius: 10,
+    padding: 12,
+    marginBottom: 8,
+  },
   contextTitle: { fontWeight: '700', marginBottom: 6, color: '#123' },
-  pillInfo: { backgroundColor: '#dfefff', paddingVertical: 6, paddingHorizontal: 10, borderRadius: 14 },
+  pillInfo: {
+    backgroundColor: '#dfefff',
+    paddingVertical: 6,
+    paddingHorizontal: 10,
+    borderRadius: 14,
+  },
   pillInfoText: { color: '#123' },
-  dropdown: { borderWidth: 1, borderColor: '#ddd', padding: 10, borderRadius: 8, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+  dropdown: {
+    borderWidth: 1,
+    borderColor: '#ddd',
+    padding: 10,
+    borderRadius: 8,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
   pillWrap: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 8 },
   pill: { paddingVertical: 8, paddingHorizontal: 12, borderRadius: 16 },
-  progressOuter: { height: 8, width: '100%', borderRadius: 6, backgroundColor: '#e9edf5', overflow: 'hidden' },
+  progressOuter: {
+    height: 8,
+    width: '100%',
+    borderRadius: 6,
+    backgroundColor: '#e9edf5',
+    overflow: 'hidden',
+  },
   progressInner: { height: 8, borderRadius: 6, backgroundColor: '#1b7ed6' },
+
+  // NEW: shared toggle styles so Switch never overflows on narrow iPhones
+  toggleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  toggleLabel: {
+    flex: 1,
+    flexShrink: 1,
+    fontWeight: '600',
+    marginRight: 8,
+  },
 });
